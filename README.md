@@ -126,6 +126,24 @@ Without internet the installer copies games from `repos/` (keeping `.git`, so a
 later online `git pull` still works). Online always prefers GitHub — the stick
 copy is the fallback, not the source of truth.
 
+## Repair & wipe 🔧
+
+`[r]` opens the repair menu with every game listed:
+
+- pick what to fix: one number (`4`), several (`1 2 3`, `1,2,3`, `1, 2, 3` — any
+  separators work), or `все`;
+- **починить все** — repair everything in one go;
+- **удалить все следы** — the "nuke" button (see below);
+- **выход** — back to the main menu.
+
+Repairing a game deletes its `.venv`, re-detects the entry point and rebuilds
+venv + dependencies from scratch — the cure for a pip run that died halfway.
+
+**Удалить все следы** erases every trace the launcher left *on that PC*: all
+games, the registry, the installed script copy and the `.bashrc`/`.zshrc` alias.
+Double-protected: a confirmation plus typing `УДАЛИТЬ` by hand. The USB stick
+(and the script on it) is never touched — that's your installer, not a trace.
+
 ## Menu keys
 
 | Key | Action |
@@ -134,6 +152,7 @@ copy is the fallback, not the source of truth.
 | `i` | install / update all games |
 | `a` | re-sync the registry |
 | `d` | delete a game |
+| `r` | repair menu (rebuild venv, wipe all traces) |
 | `s` | PC specs |
 | `u` | update the script itself |
 | `q` | exit (offers a final update check when online) |
@@ -165,9 +184,10 @@ python -m py_compile launch.py
 python -I -m unittest discover -s tests -v
 ```
 
-35 stdlib-only smoke tests (entry detection, dependency scanning, registry,
-versions, UI rendering, self-install downgrade guard, real CLI runs) run in CI
-on Python 3.10–3.14. Tests never touch the network or your real `HOME`.
+40+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
+versions, UI rendering, selection parsing, repair, alias removal, wipe guard,
+self-install downgrade guard, real CLI runs) run in CI on Python 3.10–3.14.
+Tests never touch the network or your real `HOME`.
 
 ## Disclaimer
 

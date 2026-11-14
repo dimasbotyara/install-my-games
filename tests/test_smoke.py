@@ -326,6 +326,154 @@ class Auth(unittest.TestCase):
             self.assertFalse(launch.verify_password("wrong"))
 
 
+class SelectionParsing(unittest.TestCase):
+    def test_space_separated(self):
+        self.assertEqual(launch.parse_selection("1 2 3", 5), [1, 2, 3])
+
+    def test_comma_no_spaces(self):
+        self.assertEqual(launch.parse_selection("1,2,3", 5), [1, 2, 3])
+
+    def test_comma_with_spaces(self):
+        self.assertEqual(launch.parse_selection("1, 2, 3", 5), [1, 2, 3])
+
+    def test_single_number(self):
+        self.assertEqual(launch.parse_selection("4", 5), [4])
+
+    def test_all_words(self):
+        for word in ("все", "всё", "all", "*"):
+            self.assertEqual(launch.parse_selection(word, 3), [1, 2, 3])
+
+    def test_dedup_and_sort(self):
+        self.assertEqual(launch.parse_selection("3 1 1 3", 5), [1, 3])
+
+    def test_letters_rejected(self):
+        self.assertIsNone(launch.parse_selection("1 x", 5))
+
+    def test_out_of_range_rejected(self):
+        self.assertIsNone(launch.parse_selection("6", 5))
+        self.assertIsNone(launch.parse_selection("0", 5))
+
+    def test_empty_rejected(self):
+        self.assertIsNone(launch.parse_selection("", 5))
+        self.assertIsNone(launch.parse_selection("   ", 5))
+
+
+class AliasRemoval(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._patch = unittest.mock.patch.object(Path, "home", return_value=Path(self.tmp))
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_remove_block_keeps_other_lines(self):
+        bashrc = Path(self.tmp) / ".bashrc"
+        bashrc.write_text("export EDITOR=vim\n\n%s\n%s\n\n# мой конфиг\n"
+                          % (launch.ALIAS_MARKER, launch.ALIAS_LINE), encoding="utf-8")
+        touched = launch.uninstall_alias()
+        self.assertEqual(touched[0][1], "убран")
+        content = bashrc.read_text(encoding="utf-8")
+        self.assertNotIn("alias dimasbotyara", content)
+        self.assertNotIn(launch.ALIAS_MARKER, content)
+        self.assertIn("export EDITOR=vim", content)
+        self.assertIn("# мой конфиг", content)
+
+    def test_no_alias_reported(self):
+        (Path(self.tmp) / ".bashrc").write_text("просто конфиг\n", encoding="utf-8")
+        touched = launch.uninstall_alias()
+        self.assertEqual(touched[0][1], "alias не найден")
+
+
+class RepairGames(unittest.TestCase):
+    def setUp(self):
+        self._old_dir, self._old_file = launch.PROJECTS_DIR, launch.REGISTRY_FILE
+        self.tmp = tempfile.mkdtemp()
+        launch.PROJECTS_DIR = Path(self.tmp)
+        launch.REGISTRY_FILE = Path(self.tmp) / ".registry.json"
+
+    def tearDown(self):
+        launch.PROJECTS_DIR, launch.REGISTRY_FILE = self._old_dir, self._old_file
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_repair_rebuilds_venv(self):
+        """Починка сносит .venv и собирает настоящий заново (без сети, без deps)."""
+        g = make_game(launch.PROJECTS_DIR, "g", {"run.py": "print('hi')\n"})
+        fake_py = g / ".venv" / "bin" / "python"
+        fake_py.parent.mkdir(parents=True)
+        fake_py.write_text("СЛОМАННЫЙ-СТАРЫЙ", encoding="utf-8")
+        reg = {"g": {"path": str(g), "entry": "run.py", "python": str(fake_py)}}
+
+        fixed = launch.repair_games(reg, ["g"], online=False)
+
+        self.assertEqual(fixed, 1)
+        self.assertTrue(fake_py.exists())
+        self.assertNotEqual(fake_py.read_text(encoding="utf-8", errors="ignore"),
+                            "СЛОМАННЫЙ-СТАРЫЙ")
+        self.assertEqual(reg["g"]["python"], str(fake_py))
+
+    def test_repair_skips_missing_folder(self):
+        reg = {"ghost": {"path": str(launch.PROJECTS_DIR / "ghost"),
+                         "entry": "run.py", "python": "py"}}
+        self.assertEqual(launch.repair_games(reg, ["ghost"], online=False), 0)
+
+    def test_repair_unknown_name(self):
+        self.assertEqual(launch.repair_games({}, ["нет-такой"], online=False), 0)
+
+
+class WipeTraces(unittest.TestCase):
+    def setUp(self):
+        self._old_dir, self._old_file, self._old_script = (
+            launch.PROJECTS_DIR, launch.REGISTRY_FILE, launch.INSTALLED_SCRIPT)
+        self.tmp = tempfile.mkdtemp()
+        launch.PROJECTS_DIR = Path(self.tmp) / ".config" / "systemd-backup"
+        launch.REGISTRY_FILE = launch.PROJECTS_DIR / ".registry.json"
+        launch.INSTALLED_SCRIPT = launch.PROJECTS_DIR / "launch.py"
+        self.home = tempfile.mkdtemp()
+        self._home_patch = unittest.mock.patch.object(Path, "home", return_value=Path(self.home))
+        self._home_patch.start()
+        make_game(launch.PROJECTS_DIR, "g", {"run.py": "print('hi')\n"})
+        launch.save_registry({"g": {"path": str(launch.PROJECTS_DIR / "g"),
+                                    "entry": "run.py", "python": "py"}})
+        launch.install_alias()
+
+    def tearDown(self):
+        self._home_patch.stop()
+        launch.PROJECTS_DIR, launch.REGISTRY_FILE, launch.INSTALLED_SCRIPT = (
+            self._old_dir, self._old_file, self._old_script)
+        import shutil
+        for d in (self.tmp, self.home):
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_cancelled_by_first_confirm(self):
+        reg = launch.load_registry()
+        with unittest.mock.patch.object(launch, "confirm", return_value=False):
+            self.assertFalse(launch.wipe_all_traces(reg))
+        self.assertTrue(launch.PROJECTS_DIR.exists())
+
+    def test_cancelled_by_wrong_word(self):
+        reg = launch.load_registry()
+        with unittest.mock.patch.object(launch, "confirm", return_value=True), \
+             unittest.mock.patch.object(launch, "ask", return_value="нет"):
+            self.assertFalse(launch.wipe_all_traces(reg))
+        self.assertTrue(launch.PROJECTS_DIR.exists())
+
+    def test_wipe_removes_everything(self):
+        reg = launch.load_registry()
+        with unittest.mock.patch.object(launch, "confirm", return_value=True), \
+             unittest.mock.patch.object(launch, "ask", return_value="УДАЛИТЬ"):
+            self.assertTrue(launch.wipe_all_traces(reg))
+        self.assertFalse(launch.PROJECTS_DIR.exists())
+        self.assertFalse(reg)
+        bashrc = Path(self.home) / ".bashrc"
+        content = bashrc.read_text(encoding="utf-8")
+        self.assertNotIn("alias dimasbotyara", content)
+        self.assertNotIn(launch.ALIAS_MARKER, content)
+
+
 class SmokeCLI(unittest.TestCase):
     """Самые настоящие смоки: реальный запуск CLI."""
 

@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -435,6 +435,26 @@ def game_status(info):
         return "green", entry
     return "yellow", entry + " (без venv)"
 
+def parse_selection(raw, count):
+    """'1 2 3' / '1,2,3' / '1, 2, 3' / '4' / 'все' -> отсортированные номера.
+
+    Возвращает None, если ввод кривой (буквы, выход за диапазон, пусто)."""
+    low = raw.strip().lower()
+    if low in ("все", "всё", "all", "*"):
+        return list(range(1, count + 1))
+    nums = []
+    for part in re.split(r"[,\s]+", low):
+        if not part:
+            continue
+        if not part.isdigit():
+            return None
+        n = int(part)
+        if not (1 <= n <= count):
+            return None
+        if n not in nums:
+            nums.append(n)
+    return sorted(nums) if nums else None
+
 # ============================== УСТАНОВКА ==============================
 
 def ensure_venv(project):
@@ -665,6 +685,30 @@ def install_alias():
             touched.append((rc, "добавлен"))
         except Exception as e:
             touched.append((rc, "не вышло: %s" % e))
+    return touched
+
+def uninstall_alias():
+    """Вычищает alias-блок из rc-файлов. Возвращает [(rc, что сделали)]."""
+    touched = []
+    for rc in (Path.home() / ".bashrc", Path.home() / ".zshrc"):
+        if not rc.exists():
+            continue
+        try:
+            lines = rc.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except Exception as e:
+            touched.append((rc, "не прочитался: %s" % e))
+            continue
+        kept = [l for l in lines
+                if l.strip() != ALIAS_MARKER
+                and not l.strip().startswith("alias %s=" % ALIAS_NAME)]
+        if len(kept) == len(lines):
+            touched.append((rc, "alias не найден"))
+            continue
+        try:
+            rc.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+            touched.append((rc, "убран"))
+        except Exception as e:
+            touched.append((rc, "не записался: %s" % e))
     return touched
 
 def self_install():
@@ -1060,6 +1104,142 @@ def delete_game(reg):
         ok("%s удалена из реестра" % name)
     pause()
 
+# ============================== ПОЧИНКА И СТИРКА ==============================
+
+def repair_games(reg, names, online=None):
+    """Сносит .venv выбранных игр и собирает заново: venv + зависимости + точка входа."""
+    if online is None:
+        online = internet_ok()
+    fixed = 0
+    for name in names:
+        item = reg.get(name)
+        if not item:
+            warn("%s: нет в реестре — пропускаю" % name)
+            continue
+        project = Path(item.get("path", ""))
+        print()
+        if not project.exists() or not any(project.glob("*.py")):
+            warn("%s: папка пропала — пропускаю" % name)
+            continue
+        print(paint("🔧 " + name, "orange_b", "bold"))
+        venv = project / ".venv"
+        if venv.exists():
+            try:
+                shutil.rmtree(venv)
+                dim("старый .venv снесён")
+            except Exception as e:
+                err("не смог снести .venv: %s" % e)
+                continue
+        else:
+            dim(".venv не было — соберу с нуля")
+        if setup_project(project, reg, online):
+            fixed += 1
+    save_registry(reg)
+    return fixed
+
+def repair_menu(reg):
+    """Меню починки: выбрать игры ('1 2 3' / '1,2,3' / '1, 2, 3' / '4' / 'все'),
+    починить все, удалить все следы или выйти. True — закрыть лаунчер."""
+    while True:
+        clear()
+        show_banner()
+        names = sorted(reg.keys())
+        if not names:
+            warn("реестр пуст — чинить нечего")
+            pause()
+            return False
+        rows = []
+        for i, name in enumerate(names, 1):
+            col, note = game_status(reg[name])
+            rows.append(paint("  %2d. " % i, "fg_dim") + paint(name, "bold", "fg")
+                        + "  " + paint(note, "fg_dim") + "  " + paint("●", col))
+        panel(rows, title="ПОЧИНКА ИГР", accent="yellow")
+        print()
+        print(paint("  выбор: ", "fg_dim")
+              + paint('"1 2 3"', "fg") + paint(" / ", "fg_dim")
+              + paint('"1,2,3"', "fg") + paint(" / ", "fg_dim")
+              + paint('"1, 2, 3"', "fg") + paint(" / ", "fg_dim")
+              + paint('"4"', "fg") + paint(" или ", "fg_dim") + paint('"все"', "fg"))
+        print(paint("  [все]", "green_b", "bold") + " починить все      "
+              + paint("[w]", "red_b", "bold") + " удалить все следы      "
+              + paint("[q]", "fg_dim", "bold") + " выход из этого меню")
+        print()
+        raw = ask(paint("  › ", "aqua_b", "bold"), default=None)
+        if raw is None:
+            return False
+        low = raw.strip().lower()
+        if low in ("", "q", "й", "выход", "quit", "exit"):
+            return False
+        if low in ("все", "всё", "all", "*", "a", "ф"):
+            fixed = repair_games(reg, names)
+            ok("починено игр: %d" % fixed)
+            pause()
+            continue
+        if low in ("w", "ц", "wipe", "следы", "удалить все следы"):
+            if wipe_all_traces(reg):
+                return True
+            continue
+        nums = parse_selection(raw, len(names))
+        if not nums:
+            warn("не понял %r — номера через пробел/запятую, «все», w или q" % raw)
+            pause()
+            continue
+        chosen = [names[n - 1] for n in nums]
+        fixed = repair_games(reg, chosen)
+        ok("починено: %d из %d (%s)" % (fixed, len(chosen), ", ".join(chosen)))
+        pause()
+
+def wipe_all_traces(reg):
+    """«Удалить все следы»: сносит с ЭТОГО компа игры, реестр, установленную
+    копию скрипта и alias. Флешку не трогает. True — закрыть лаунчер."""
+    clear()
+    show_banner()
+    games_n = 0
+    if PROJECTS_DIR.exists():
+        games_n = len([d for d in PROJECTS_DIR.iterdir()
+                       if d.is_dir() and not d.name.startswith(".")])
+    lines = [
+        kv("игры", paint("%d шт. — %s" % (games_n, PROJECTS_DIR), "red_b")),
+        kv("реестр", paint(str(REGISTRY_FILE), "red_b")),
+        kv("копия скрипта", paint(str(INSTALLED_SCRIPT), "red_b")),
+        kv("alias", paint("dimasbotyara в .bashrc / .zshrc", "red_b")),
+        "",
+        paint("  флешку и скрипт на ней это НЕ трогает", "green_b"),
+    ]
+    panel(lines, title="УДАЛИТЬ ВСЕ СЛЕДЫ?", accent="red")
+    print()
+    if not confirm("точно стереть все следы на этом компе?", default=False):
+        dim("отмена")
+        pause()
+        return False
+    word = ask(paint("  › ", "aqua_b", "bold")
+               + paint("набри УДАЛИТЬ большими буквами: ", "red_b", "bold"))
+    if word.strip().upper() != "УДАЛИТЬ":
+        dim("не то слово — отмена")
+        pause()
+        return False
+
+    print()
+    running_from_pc = Path(__file__).resolve() == INSTALLED_SCRIPT.resolve()
+    if PROJECTS_DIR.exists():
+        try:
+            shutil.rmtree(PROJECTS_DIR)
+            ok("снесено: %s (игры + реестр + копия скрипта)" % PROJECTS_DIR)
+        except Exception as e:
+            err("не всё получилось снести: %s" % e)
+    reg.clear()
+    for rc, note in uninstall_alias():
+        if note == "убран":
+            ok("%s: %s" % (rc.name, note))
+        else:
+            dim("%s: %s" % (rc.name, note))
+    print()
+    if running_from_pc:
+        warn("лаунчер запущен с компа — его файл тоже снесён, после выхода он закроется")
+    ok("следов не осталось. осталась только флешка 😌")
+    pause()
+    return True
+
 # ============================== МЕНЮ ==============================
 
 def draw_menu(reg):
@@ -1082,9 +1262,10 @@ def draw_menu(reg):
     print(paint("  [i]", "green_b", "bold") + " установить/обновить игры     " +
           paint("[a]", "blue_b", "bold") + " синхронизировать реестр")
     print(paint("  [d]", "red_b", "bold") + " удалить игру                  " +
-          paint("[s]", "aqua_b", "bold") + " характеристики компьютера")
-    print(paint("  [u]", "orange_b", "bold") + " обновить сам скрипт           " +
-          paint("[q]", "fg_dim", "bold") + " выход")
+          paint("[r]", "yellow_b", "bold") + " починить игры 🔧")
+    print(paint("  [s]", "aqua_b", "bold") + " характеристики компьютера     " +
+          paint("[u]", "orange_b", "bold") + " обновить сам скрипт")
+    print(paint("  [q]", "fg_dim", "bold") + " выход")
     print()
     return names
 
@@ -1125,6 +1306,12 @@ def menu_loop(reg):
             delete_game(reg)
             continue
 
+        if choice in ("r", "к"):
+            if repair_menu(reg):
+                return
+            reg = load_registry()
+            continue
+
         if choice in ("s", "ы"):
             show_specs()
             continue
@@ -1149,7 +1336,7 @@ def menu_loop(reg):
                 return
             continue
 
-        warn("не понял: %r — номер, i/a/d/s/u или q" % choice)
+        warn("не понял: %r — номер, i/a/d/r/s/u или q" % choice)
         pause()
 
 # ============================== ЗАПУСК ==============================
