@@ -292,6 +292,40 @@ class AliasInstall(unittest.TestCase):
         self.assertEqual(content.count("alias dimasbotyara"), 1)
 
 
+class Auth(unittest.TestCase):
+    def test_hash_is_64_hex(self):
+        self.assertRegex(launch.AUTH_HASH, r"^[0-9a-f]{64}$")
+
+    def test_auth_hash_pinned(self):
+        """Хэш в коде зафиксирован — случайно не поменялся."""
+        self.assertEqual(
+            launch.AUTH_HASH,
+            "674485607c066f34c1be917790bce9d4b120e87c0e2c5c9954c1da82982d4ab6")
+
+    def test_hash_differs_per_password(self):
+        self.assertNotEqual(launch.password_hash("a"), launch.password_hash("b"))
+        self.assertNotEqual(launch.password_hash(""), launch.password_hash(" "))
+
+    def test_salt_is_in_the_mix(self):
+        """Хэш не должен быть голым sha256 от известного пароля — соль участвует."""
+        import hashlib
+        for guess in (b"qwerty", b"123456", b"password"):
+            self.assertNotEqual(launch.AUTH_HASH, hashlib.sha256(guess).hexdigest())
+        self.assertNotEqual(launch.AUTH_HASH,
+                            hashlib.sha256(launch.AUTH_SALT.encode()).hexdigest())
+
+    def test_verify_rejects_wrong_passwords(self):
+        for wrong in ("", "wrong", "12345", "Qwerty", "qwerty ", "password"):
+            self.assertFalse(launch.verify_password(wrong))
+
+    def test_verify_mechanism(self):
+        """Механика verify: True только на пароле, чей хэш в AUTH_HASH."""
+        with unittest.mock.patch.object(launch, "AUTH_HASH",
+                                        launch.password_hash("topsecret-test")):
+            self.assertTrue(launch.verify_password("topsecret-test"))
+            self.assertFalse(launch.verify_password("wrong"))
+
+
 class SmokeCLI(unittest.TestCase):
     """Самые настоящие смоки: реальный запуск CLI."""
 

@@ -44,6 +44,27 @@ python3 /run/media/you/FLASH/launch.py
 
 No internet? Games already on the PC still launch — offline never blocks playing.
 
+## Password gate 🔒
+
+Opening the launcher (and anything that does something: installing, launching,
+self-update) asks for a password. Input is hidden (`getpass`), 3 attempts.
+
+The password itself is **not stored anywhere**: only a salted SHA-256 hash lives
+in `launch.py`, compared in constant time (`hmac.compare_digest`). No rainbow
+table is going to reverse it, and reading the source won't reveal the secret.
+To change the password, replace `AUTH_HASH` with
+`sha256(AUTH_SALT + ":" + new_password)`.
+
+Read-only helpers (`--help`, `--version`, `--specs`) stay password-free.
+
+## Fire-and-forget launching
+
+Choosing a game **detaches** it from the launcher: the game gets its own session
+(`setsid`), the launcher wipes the terminal and exits, and the game keeps running
+on its own — no forgotten launcher windows hanging around afterwards. If a game
+dies within the first second, the terminal is *not* cleared so its error output
+stays visible.
+
 ## Entry point detection
 
 Scans each game in this priority order:
@@ -109,7 +130,7 @@ copy is the fallback, not the source of truth.
 
 | Key | Action |
 |-----|--------|
-| `1..N` or game name | launch |
+| `1..N` or game name | launch (detached — the launcher closes) |
 | `i` | install / update all games |
 | `a` | re-sync the registry |
 | `d` | delete a game |

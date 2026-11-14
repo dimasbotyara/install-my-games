@@ -9,6 +9,9 @@ BOTYARA GAMES — единственный скрипт: установщик + 
 Домашним ПК не место. Школе — самое то.
 """
 
+import getpass
+import hashlib
+import hmac
 import json
 import os
 import platform
@@ -17,11 +20,12 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -58,6 +62,11 @@ FLASH_REPOS_DIR = SCRIPT_DIR / "repos"      # оффлайн-копии игр �
 ALIAS_NAME = "dimasbotyara"
 ALIAS_LINE = 'alias %s="python3 ~/.config/systemd-backup/launch.py"' % ALIAS_NAME
 ALIAS_MARKER = "# BOTYARA GAMES launcher"
+
+# --- пароль лаунчера: в коде только хэш с солью, сам пароль не хранится ---
+AUTH_SALT = "botyara-games::hidden-launcher::v2"
+AUTH_HASH = "674485607c066f34c1be917790bce9d4b120e87c0e2c5c9954c1da82982d4ab6"
+AUTH_ATTEMPTS = 3
 
 # иерархия точек входа: run.py > app.py > main.py
 ENTRY_PRIORITY = ["run.py", "app.py", "main.py"]
@@ -257,6 +266,35 @@ def read_version(path):
         return m.group(1) if m else None
     except Exception:
         return None
+
+# ============================== ПАРОЛЬ ==============================
+
+def password_hash(pw):
+    """Соль + SHA-256: готовый хэш не гуглится и в радужных таблицах не ищется."""
+    return hashlib.sha256((AUTH_SALT + ":" + pw).encode("utf-8")).hexdigest()
+
+def verify_password(pw):
+    """Сравнение за постоянное время, чтобы не подсказывать угадавшим часть хэша."""
+    return hmac.compare_digest(password_hash(pw), AUTH_HASH)
+
+def require_password():
+    """Вход по паролю. Ввод не отображается (getpass). Неверный — 3 попытки."""
+    for attempt in range(1, AUTH_ATTEMPTS + 1):
+        print(paint("  🔒 ", "yellow_b", "bold")
+              + paint("скрытный лаунчер — введи пароль (попытка %d/%d)" % (attempt, AUTH_ATTEMPTS),
+                      "fg_dim"))
+        try:
+            pw = getpass.getpass(paint("  › ", "aqua_b", "bold"))
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+        if pw and verify_password(pw):
+            ok("доступ разрешён")
+            return True
+        warn("неа")
+        time.sleep(0.8)
+    err("доступ запрещён. до встречи 🕵️")
+    return False
 
 # ============================== СЕТЬ ==============================
 
@@ -676,8 +714,11 @@ def self_update():
         err("в скачанном файле нет версии — обновление отменено")
         return
     remote = m.group(1)
-    if vtuple(remote) <= vtuple(__version__):
+    if vtuple(remote) == vtuple(__version__):
         ok("у тебя последняя версия: v%s" % __version__)
+        return
+    if vtuple(remote) < vtuple(__version__):
+        warn("локальная v%s новее, чем на GitHub (v%s) — запушь коммит" % (__version__, remote))
         return
 
     print()
@@ -919,14 +960,18 @@ def show_specs():
 
 # ============================== ЗАПУСК ИГР ==============================
 
-def launch_game(name, info, reg):
-    path = Path(info.get("path", ""))
-    entry = info.get("entry")
+def launch_detached(name, game, reg):
+    """Запускает игру откреплённо (setsid), чистит терминал и закрывает лаунчер.
+
+    Возвращает True, если лаунчер пора закрыть (игра ушла в свободный полёт),
+    False — если остались в меню (например, игра сразу упала)."""
+    path = Path(game.get("path", ""))
+    entry = game.get("entry")
 
     if not path.exists() or not any(path.glob("*.py")):
         err("папка игры пропала: %s" % path)
         pause()
-        return
+        return False
 
     if not entry or not (path / entry).is_file():
         info("точка входа не настроена — давай выберем")
@@ -934,31 +979,34 @@ def launch_game(name, info, reg):
         if not entry:
             dim("без точки входа не запустить")
             pause()
-            return
-        info["entry"] = entry
+            return False
+        game["entry"] = entry
         save_registry(reg)
 
-    py = info.get("python") or ""
+    py = game.get("python") or ""
     if not py or not Path(py).exists():
         py = sys.executable
         warn("venv нет — запускаю системным python")
 
-    print()
-    print(paint("  ▶ ", "orange_b", "bold") + paint(name, "bold") + paint("  (%s)" % entry, "fg_dim"))
-    hr(color="fg_dim")
-    code = 0
+    info("запускаю %s (%s) откреплённо..." % (name, entry))
     try:
-        r = subprocess.run([py, str(path / entry)], cwd=str(path))
-        code = r.returncode
-    except KeyboardInterrupt:
-        print()
-        warn("прервано")
+        proc = subprocess.Popen([py, str(path / entry)], cwd=str(path),
+                                start_new_session=True)
     except Exception as e:
-        err("ошибка запуска: %s" % e)
-    hr(color="fg_dim")
-    if code:
-        dim("код выхода: %d" % code)
-    pause()
+        err("не запустилось: %s" % e)
+        pause()
+        return False
+
+    time.sleep(1.0)
+    if proc.poll() is not None:
+        # упала мгновенно — терминал НЕ чистим, чтобы был виден её вывод
+        err("%s вырубилась сразу (код %s) — вывод выше подскажет причину" %
+            (name, proc.returncode))
+        pause()
+        return False
+
+    clear()  # терминал пустой, игра живёт своей жизнью, лаунчер закрывается
+    return True
 
 def delete_game(reg):
     clear()
@@ -1089,14 +1137,16 @@ def menu_loop(reg):
         if choice.isdigit():
             idx = int(choice)
             if 1 <= idx <= len(names):
-                launch_game(names[idx - 1], reg[names[idx - 1]], reg)
+                if launch_detached(names[idx - 1], reg[names[idx - 1]], reg):
+                    return
             else:
                 warn("нет игры с таким номером")
                 pause()
             continue
 
         if choice in reg:
-            launch_game(choice, reg[choice], reg)
+            if launch_detached(choice, reg[choice], reg):
+                return
             continue
 
         warn("не понял: %r — номер, i/a/d/s/u или q" % choice)
@@ -1140,8 +1190,8 @@ def main(argv=None):
         print(__doc__.strip())
         print()
         print("использование: launch.py [имя_игры] [опции]")
-        print("  (без опций)      меню лаунчера")
-        print("  ИМЯ              запустить игру по имени сразу")
+        print("  (без опций)      меню лаунчера (вход по паролю)")
+        print("  ИМЯ              запустить игру по имени сразу (лаунчер закроется)")
         print("  --install        скачать/обновить игры и настроить venv")
         print("  --sync           только синхронизировать реестр")
         print("  --specs          характеристики компьютера")
@@ -1152,6 +1202,11 @@ def main(argv=None):
     if "--specs" in argv:
         show_specs()
         return 0
+
+    # всё остальное — за паролем
+    if not require_password():
+        return 1
+
     if "--update" in argv:
         self_update()
         return 0
@@ -1206,7 +1261,7 @@ def main(argv=None):
         return 0
 
     if target in reg:
-        launch_game(target, reg[target], reg)
+        launch_detached(target, reg[target], reg)
         return 0
     err("игра %r не найдена в реестре. доступно: %s" % (target, ", ".join(sorted(reg)) or "ничего"))
     return 1
