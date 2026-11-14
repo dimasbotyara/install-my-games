@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments (games get their own on target PCs)
+.venv/
+venv/
+
+# Offline game copies for the USB stick (data, not code)
+repos/
+
+# Runtime state
+.registry.json
+*.log
+
+# Editors / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

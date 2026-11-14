@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: smoke (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ALT Linux Education может прийти с чем угодно от 3.9 до 3.12+
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Byte-compile launch.py
+        run: python -m py_compile launch.py
+
+      - name: Smoke — CLI entry points
+        run: |
+          python -I launch.py --version
+          python -I launch.py --help > /dev/null
+          python -I launch.py --specs > /dev/null
+
+      - name: Unit + smoke tests (no network, no real HOME)
+        run: python -I -m unittest discover -s tests -v
