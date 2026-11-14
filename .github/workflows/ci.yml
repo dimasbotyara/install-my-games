@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ALT Linux Education может прийти с чем угодно от 3.9 до 3.12+
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # ALT Linux Education может прийти с чем угодно от 3.10 до 3.14
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 

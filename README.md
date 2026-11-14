@@ -146,7 +146,7 @@ python -I -m unittest discover -s tests -v
 
 35 stdlib-only smoke tests (entry detection, dependency scanning, registry,
 versions, UI rendering, self-install downgrade guard, real CLI runs) run in CI
-on Python 3.9–3.13. Tests never touch the network or your real `HOME`.
+on Python 3.10–3.14. Tests never touch the network or your real `HOME`.
 
 ## Disclaimer
 
