@@ -9,6 +9,23 @@ update itself from GitHub. Pure Python stdlib — **zero pip dependencies**.
 
 ---
 
+## Documentation site
+
+The Russian-language guide lives in [`docs/`](docs/) and covers installation,
+USB preparation, offline use, safety and troubleshooting. Preview it locally:
+
+```bash
+python3 -m http.server 8000 --directory docs
+```
+
+GitHub Pages is deployed by `.github/workflows/pages.yml` when `docs/` changes
+on `main`. In the repository settings, select **Pages → Build and deployment →
+Source → GitHub Actions**. Once the workflow succeeds, the site is available at
+<https://dimasbotyara.github.io/install-my-games/>. Pages must be enabled in the
+repository settings; simply merging the workflow does not configure it.
+
+---
+
 ## ⚠️ NOT FOR YOUR HOME PC
 
 > **This tool was built for school computer labs running [ALT Linux Education][alt].**

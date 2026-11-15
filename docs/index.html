@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1d2021">
+  <meta name="description" content="Подробное руководство по BOTYARA GAMES: установка, подготовка флешки и работа без интернета.">
+  <title>BOTYARA GAMES — документация</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+  <noscript><style>@media(max-width:800px){.sidebar{display:block;position:static;width:auto;box-shadow:none}.side-inner{height:auto}.menu-toggle{display:none}}</style></noscript>
+</head>
+<body>
+  <a class="skip-link" href="#main">Перейти к содержимому</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="BOTYARA GAMES — к началу">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9.2 10.5h13.6c3.2 0 5 2.5 5.6 5.7l.8 4.3c.6 3.3-2.8 5.2-5.1 3l-3-2.8H11l-3 2.8c-2.3 2.2-5.7.3-5.1-3l.8-4.3c.6-3.2 2.4-5.7 5.5-5.7Z"/><path d="M9 14v5m-2.5-2.5h5M21.5 15.4h.1m3 3h.1"/></svg></span>
+        <span class="brand-name">BOTYARA<span> / </span>GAMES</span>
+      </a>
+      <div class="topbar-right">
+        <span class="top-label"><span class="status-dot"></span> ДОКУМЕНТАЦИЯ <span class="top-version"> / v2.3.3</span></span>
+        <a class="github-link" href="https://github.com/dimasbotyara/install-my-games">GitHub <span aria-hidden="true">↗</span></a>
+        <button class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Открыть навигацию"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout" id="top">
+    <aside class="sidebar" id="sidebar" aria-label="Навигация по документации">
+      <div class="side-inner">
+        <div class="sidebar-heading">НАВИГАЦИЯ <span>01 — 09</span></div>
+        <nav class="side-nav">
+          <span class="nav-group">НАЧАЛО</span>
+          <a href="#overview" class="active"><span>01</span> Обзор</a>
+          <a href="#before"><span>02</span> Перед установкой</a>
+          <a href="#install"><span>03</span> Установка</a>
+          <span class="nav-group">РУКОВОДСТВО</span>
+          <a href="#usb"><span>04</span> Подготовка флешки</a>
+          <a href="#offline"><span>05</span> Офлайн-установка</a>
+          <a href="#launcher"><span>06</span> Работа с лаунчером</a>
+          <a href="#configuration"><span>07</span> Настройка и файлы</a>
+          <span class="nav-group">ПОМОЩЬ</span>
+          <a href="#troubleshooting"><span>08</span> Решение проблем</a>
+          <a href="#cleanup"><span>09</span> Удаление</a>
+        </nav>
+        <div class="sidebar-note"><span class="note-icon">✳</span><div><strong>Нашёл ошибку?</strong><p>Расскажи нам на GitHub.</p><a href="https://github.com/dimasbotyara/install-my-games/issues">Открыть issue <span>↗</span></a></div></div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section class="hero" id="overview">
+        <div class="breadcrumb"><span>ДОКУМЕНТАЦИЯ</span><span>/</span> НАЧАЛО РАБОТЫ</div>
+        <div class="hero-topline"><span class="eyebrow"><span class="status-dot"></span> РУКОВОДСТВО ПОЛЬЗОВАТЕЛЯ</span><span class="edition">ALT LINUX EDITION <span>✳</span></span></div>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="hero-kicker">ИГРЫ. ТЕРМИНАЛ. ФЛЕШКА.</div>
+            <h1>Всё готово<br>к <em>игре.</em><span class="cursor">_</span></h1>
+            <p class="hero-description">Устанавливай, запускай и бери любимые игры с собой. Простое руководство по BOTYARA GAMES — от первого запуска до игры без интернета.</p>
+            <div class="hero-actions"><a class="button button-primary" href="#install">Начать установку <span>↗</span></a><a class="button button-secondary" href="#usb">Подготовить флешку <span>→</span></a></div>
+          </div>
+          <div class="hero-art" aria-label="Иллюстрация терминала BOTYARA GAMES">
+            <div class="art-grid"></div>
+            <div class="terminal-card">
+              <div class="terminal-head"><div class="terminal-dots"><i></i><i></i><i></i></div><span>botyara@linux: ~</span><span>— □ ×</span></div>
+              <div class="terminal-body"><div class="terminal-prompt"><b>➜</b> <span>~</span> python3 launch.py</div><pre class="terminal-logo" aria-hidden="true">██████╗  ██████╗
+██╔══██╗██╔════╝
+██████╔╝██║  ███╗
+██╔══██╗██║   ██║
+██████╔╝╚██████╔╝
+╚═════╝  ╚═════╝</pre><div class="terminal-title">BOTYARA <span>GAMES</span></div><div class="terminal-rule"></div><div class="terminal-line"><span>✓</span> лаунчер готов</div><div class="terminal-line"><span>✓</span> игры найдены</div><div class="terminal-bottom">› выбери игру <span>▌</span></div></div>
+            </div>
+            <div class="art-tag"><span>●</span> READY TO PLAY</div>
+            <span class="art-cross cross-one">✳</span><span class="art-cross cross-two">+</span>
+          </div>
+        </div>
+        <div class="hero-meta"><span><b>●</b> PYTHON + GIT</span><span><b>●</b> LINUX</span><span><b>●</b> USB READY</span><span class="hero-meta-right">СДЕЛАНО ДЛЯ ИГР <span>♡</span></span></div>
+      </section>
+
+      <div class="content-wrap">
+        <div class="intro-heading"><div><span class="section-label">// ДАВАЙ ЗНАКОМИТЬСЯ</span><h2>Маленький лаунчер.<br><span>Много возможностей.</span></h2></div><p>Всё необходимое, чтобы перейти от чистой системы к любимым играм — в одном месте.</p></div>
+        <div class="feature-grid">
+          <article class="feature"><div class="feature-icon">↘</div><span class="feature-number">01 / УСТАНОВКА</span><h3>Без лишних шагов</h3><p>Клонирует репозитории, создаёт окружения и находит зависимости.</p></article>
+          <article class="feature"><div class="feature-icon">⌁</div><span class="feature-number">02 / ПЕРЕНОС</span><h3>С собой на флешке</h3><p>Подготовь игры и Linux wheels заранее, чтобы установить их офлайн.</p></article>
+          <article class="feature"><div class="feature-icon">⌘</div><span class="feature-number">03 / ЗАПУСК</span><h3>Всё под рукой</h3><p>Запускай игры из меню, обновляй их и смотри характеристики ПК.</p></article>
+        </div>
+
+        <section class="doc-section" id="before"><div class="section-header"><div><span class="section-label">01 / ПОДГОТОВКА</span><h2>Прежде чем начать<span class="accent">.</span></h2></div><span class="section-index">01 — 09</span></div><p class="lead">Пара важных вещей, которые стоит знать до первой команды.</p>
+          <div class="callout warning"><div class="callout-icon">!</div><div><strong>Используй только там, где это разрешено</strong><p>Проект создавался для ALT Linux Education. Лаунчер скачивает и запускает код из репозиториев, создаёт файлы в домашней папке и меняет настройки оболочки. Изучи код и получи разрешение владельца или администратора компьютера. Не запускай скрипты, которым не доверяешь.</p></div></div>
+          <div class="requirements"><div><span class="check">✓</span><div><strong>Linux-компьютер</strong><p>Основная цель — ALT Linux Education. Для других дистрибутивов названия пакетов могут отличаться.</p></div></div><div><span class="check">✓</span><div><strong>Python 3 и Git</strong><p>Также нужны работающие <code>venv</code> и <code>pip</code>. Для онлайн-установки потребуется доступ к GitHub и индексам пакетов.</p></div></div><div><span class="check">✓</span><div><strong>Немного свободного места</strong><p>Для репозиториев и отдельного виртуального окружения каждой игры.</p></div></div></div>
+          <p>Проверить инструменты можно в терминале:</p>
+          <div class="codeblock"><div class="code-head"><span><i></i> ТЕРМИНАЛ</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 --version
+git --version
+python3 -m pip --version</code></pre></div>
+          <p class="small-note">Если <code>venv</code> не работает, в ALT Linux могут понадобиться пакеты <code>python3-module-pip</code> и <code>python3-module-venv</code>. Устанавливай системные пакеты только с разрешения администратора.</p>
+        </section>
+
+        <section class="doc-section" id="install"><div class="section-header"><div><span class="section-label">02 / ПЕРВЫЙ ЗАПУСК</span><h2>Установка<span class="accent">.</span></h2></div><span class="section-index">02 — 09</span></div><p class="lead">Выбери удобный способ. Обе команды сначала сохраняют файлы на диск — их можно изучить до запуска.</p>
+          <div class="method"><div class="method-title"><span class="method-num">01</span><div><h3>Клонировать репозиторий</h3><p>Рекомендуемый способ: рядом будут и лаунчер, и мастер подготовки флешки.</p></div><span class="method-badge">РЕКОМЕНДУЕМ</span></div><div class="codeblock"><div class="code-head"><span><i></i> BASH / LINUX</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>git clone https://github.com/dimasbotyara/install-my-games.git
+cd install-my-games</code></pre></div><p class="small-note">Изучи <code>launch.py</code>, прежде чем запускать его. Затем выполни команду ниже.</p><div class="codeblock"><div class="code-head"><span><i></i> ПЕРВЫЙ ЗАПУСК</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 launch.py</code></pre></div></div>
+          <div class="method"><div class="method-title"><span class="method-num">02</span><div><h3>Скачать через curl</h3><p>Только лаунчер. Для подготовки флешки нужны оба файла — смотри ниже.</p></div></div><div class="codeblock"><div class="code-head"><span><i></i> BASH / LINUX</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>mkdir -p botyara-games &amp;&amp; cd botyara-games
+curl -fL -o launch.py https://raw.githubusercontent.com/dimasbotyara/install-my-games/main/launch.py</code></pre></div><p class="small-note">Скачивание с <code>main</code> получает текущую версию, а не закреплённый релиз. Перед запуском проверь содержимое файла, например <code>less launch.py</code>, а затем выполни:</p><div class="codeblock"><div class="code-head"><span><i></i> ПЕРВЫЙ ЗАПУСК</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 launch.py</code></pre></div></div>
+          <div class="numbered-steps"><div><span>01</span><p><strong>Введи пароль.</strong> Лаунчер запросит его при входе; ввод не отображается. Для просмотра версии и справки пароль не нужен.</p></div><div><span>02</span><p><strong>Подтверди установку игр.</strong> При первом обычном запуске лаунчер предложит скачать отсутствующие игры. Или выбери <code>i</code> в меню.</p></div><div><span>03</span><p><strong>Выбери игру.</strong> Введи номер или имя в меню. При необходимости лаунчер попросит выбрать точку входа.</p></div></div>
+          <div class="callout tip"><div class="callout-icon">✳</div><div><strong>Запустить позже</strong><p>При обычном запуске лаунчер копируется в <code>~/.config/systemd-backup/</code> и добавляет alias <code>dimasbotyara</code> в настройки оболочки. Открой новый терминал или выполни <code>source ~/.bashrc</code>, если используешь bash.</p></div></div>
+        </section>
+
+        <section class="doc-section" id="usb"><div class="section-header"><div><span class="section-label">03 / БЕРЁМ С СОБОЙ</span><h2>Подготовка флешки<span class="accent">.</span></h2></div><span class="section-index">03 — 09</span></div><p class="lead">Подготовь носитель на компьютере с интернетом, чтобы потом установить игры на Linux-ПК без сети.</p>
+          <div class="callout warning"><div class="callout-icon">!</div><div><strong>Проверь путь к носителю</strong><p>Мастер не форматирует диск, но записывает и обновляет файлы в папке <code>BOTYARA-GAMES</code>. Убедись, что выбран нужный диск и на нём достаточно места. Сделай резервную копию важных данных.</p></div></div>
+          <h3>1. Узнай параметры целевого Linux-ПК</h3><p>Именно под этот компьютер будут подбираться wheel-файлы. Версию Python, архитектуру и glibc можно узнать заранее:</p><div class="codeblock"><div class="code-head"><span><i></i> ЦЕЛЕВОЙ LINUX-ПК</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 --version
+uname -m
+ldd --version</code></pre></div>
+          <h3>2. Запусти мастер на компьютере с интернетом</h3><p>Нужны Python 3 с pip и Git. Если репозиторий уже клонирован, открой его папку и запусти:</p><div class="codeblock"><div class="code-head"><span><i></i> LINUX / WINDOWS</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 prepare_usb.py</code></pre></div><p>В Windows используй <code>py prepare_usb.py</code>. При необходимости сначала клонируй репозиторий командой из раздела установки.</p>
+          <details class="extra-details"><summary>А можно подготовить через curl? <span>+</span></summary><div><p>Да, скачай оба файла в одну папку на Linux: <code>prepare_usb.py</code> импортирует <code>launch.py</code>.</p><div class="codeblock"><div class="code-head"><span><i></i> BASH / LINUX</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>mkdir -p botyara-games &amp;&amp; cd botyara-games
+curl -fL -o launch.py https://raw.githubusercontent.com/dimasbotyara/install-my-games/main/launch.py
+curl -fL -o prepare_usb.py https://raw.githubusercontent.com/dimasbotyara/install-my-games/main/prepare_usb.py</code></pre></div><p>Проверь оба скачанных файла, затем запусти мастер:</p><div class="codeblock"><div class="code-head"><span><i></i> ЗАПУСК МАСТЕРА</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 prepare_usb.py</code></pre></div></div></details>
+          <h3>3. Ответь на вопросы мастера</h3><div class="numbered-steps"><div><span>01</span><p>Выбери обнаруженный съёмный диск или введи путь к смонтированной флешке вручную.</p></div><div><span>02</span><p>Для установки на чистый ПК без сети ответь <strong>«да» и на репозитории, и на wheel-файлы</strong>.</p></div><div><span>03</span><p>Укажи версию CPython, архитектуру <code>x86_64</code> или <code>aarch64</code> и минимальную glibc <code>2.17</code> или <code>2.28</code>. Проверь итог и ошибки.</p></div></div>
+          <div class="callout tip"><div class="callout-icon">✳</div><div><strong>Linux wheels даже на Windows</strong><p>Мастер запрашивает бинарные пакеты для Linux и универсальные wheels. Но pip может вычислить условные зависимости по ОС подготовки; часть зависимостей может отсутствовать. Лучше готовить на аналогичной Linux-системе и обязательно проверить набор на целевом ПК.</p></div></div>
+        </section>
+
+        <section class="doc-section" id="offline"><div class="section-header"><div><span class="section-label">04 / БЕЗ ИНТЕРНЕТА</span><h2>Офлайн-установка<span class="accent">.</span></h2></div><span class="section-index">04 — 09</span></div><p class="lead">Флешка подготовлена? Подключи её к Linux-ПК и запускай именно копию лаунчера с носителя.</p>
+          <div class="file-tree"><div class="tree-heading"><span>▣</span> СОДЕРЖИМОЕ ФЛЕШКИ</div><pre>BOTYARA-GAMES/
+├── <span>launch.py</span>
+├── <span>repos/</span>                 <i>← копии игр</i>
+│   ├── botyarapong/
+│   └── ...
+└── <span>wheels/</span>                <i>← пакеты для каждой игры</i>
+    ├── botyarapong/
+    └── ...</pre></div>
+          <p>Подставь реальный путь к флешке вместо примера:</p><div class="codeblock"><div class="code-head"><span><i></i> ЦЕЛЕВОЙ LINUX-ПК</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 /путь/к/флешке/BOTYARA-GAMES/launch.py --install</code></pre></div><p>После ввода пароля лаунчер скопирует доступные репозитории и установит зависимости из <code>wheels/&lt;имя-игры&gt;/</code> без обращения к индексу пакетов. Ошибки отсутствующих или несовместимых wheels будут показаны в итогах.</p>
+          <div class="callout warning"><div class="callout-icon">!</div><div><strong>Что не делает флешка</strong><p>Она не устанавливает системный Python, pip, venv, графическую среду или нативные библиотеки ОС. Не для каждого пакета существует подходящий wheel. Прямые ссылки в requirements и метаданных wheel в офлайн-режиме отклоняются.</p></div></div><p class="small-note">Установленная на ПК копия лаунчера не ищет подключённую флешку автоматически. Для офлайн-установки и восстановления запускай файл <code>launch.py</code> с флешки.</p>
+        </section>
+
+        <section class="doc-section" id="launcher"><div class="section-header"><div><span class="section-label">05 / УПРАВЛЕНИЕ</span><h2>Знакомство с меню<span class="accent">.</span></h2></div><span class="section-index">05 — 09</span></div><p class="lead">Никаких сложных команд: большая часть действий доступна прямо в лаунчере.</p>
+          <div class="menu-table"><div class="table-heading"><span>КЛАВИША</span><span>ЧТО ПРОИЗОЙДЁТ</span></div><div><kbd>1..N</kbd><span>Запустить игру по номеру или введи её имя</span></div><div><kbd>i</kbd><span>Установить или обновить игры</span></div><div><kbd>a</kbd><span>Синхронизировать реестр с папками игр</span></div><div><kbd>d</kbd><span>Удалить выбранную игру с подтверждением</span></div><div><kbd>r</kbd><span>Восстановление окружений и удаление следов</span></div><div><kbd>s</kbd><span>Посмотреть характеристики компьютера</span></div><div><kbd>u</kbd><span>Вручную проверить обновление лаунчера</span></div><div><kbd>q</kbd><span>Выйти из лаунчера</span></div></div>
+          <h3>Как запускаются игры?</h3><p>Оконные игры, например на pygame, отделяются от лаунчера: игра продолжает работать самостоятельно. Если игра сразу завершилась, вывод ошибки остаётся в терминале. Веб-приложения, например Flask, запускаются в том же терминале с логом. После их завершения или остановки через <code>Ctrl+C</code> лаунчер закрывается. Если найдены и GUI-, и веб-зависимости, приоритет у оконного режима.</p>
+          <h3>Полезные аргументы</h3><div class="codeblock"><div class="code-head"><span><i></i> КОМАНДНАЯ СТРОКА</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 launch.py --help
+python3 launch.py --version
+python3 launch.py --specs
+python3 launch.py --install
+python3 launch.py --sync
+python3 launch.py --update
+python3 launch.py botyarapong</code></pre></div><p class="small-note"><code>--help</code>, <code>--version</code> и <code>--specs</code> не требуют пароль. Остальные действия защищены паролем.</p>
+        </section>
+
+        <section class="doc-section" id="configuration"><div class="section-header"><div><span class="section-label">06 / ПОД КАПОТОМ</span><h2>Файлы и настройка<span class="accent">.</span></h2></div><span class="section-index">06 — 09</span></div><p class="lead">Немного о том, что происходит после запуска, и где искать результаты.</p>
+          <div class="info-list"><div><span>01</span><div><h3>Папка игр и реестр</h3><p>Игры, <code>.registry.json</code> и установленная копия скрипта находятся в <code>~/.config/systemd-backup/</code>. Реестр синхронизируется с папками при запуске.</p></div></div><div><span>02</span><div><h3>Зависимости и точка входа</h3><p>Для каждой игры создаётся <code>.venv</code>. При наличии используется <code>requirements.txt</code>, иначе сканируются импорты. Порядок поиска запуска: <code>run.py</code> → <code>app.py</code> → <code>main.py</code> → единственный Python-файл → ручной выбор.</p></div></div><div><span>03</span><div><h3>Список репозиториев</h3><p>По умолчанию он задан в <code>REPO_LIST</code> внутри <code>launch.py</code>. Можно временно выбрать несколько игр переменной окружения:</p><div class="codeblock"><div class="code-head"><span><i></i> BASH</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>BOTYARA_REPOS="botyarapong,botyaragames" python3 launch.py</code></pre></div><p>Переменная также работает с <code>prepare_usb.py</code>. Имена берутся из аккаунта GitHub, указанного в скрипте.</p></div></div><div><span>04</span><div><h3>Настройки оболочки</h3><p>При обычном запуске создаётся alias в <code>~/.bashrc</code> и <code>~/.zshrc</code>. В bash также добавляются <code>HISTIGNORE</code> и <code>HISTCONTROL</code>; они влияют на историю команд. Проверь эти изменения перед использованием.</p></div></div></div>
+          <div class="callout warning"><div class="callout-icon">!</div><div><strong>Пароль — не защита системы</strong><p>В скрипте хранится солёный хеш, а не сам пароль. Это простое ограничение доступа к меню: слабый пароль можно подобрать, а человек с доступом к файлу может обойти проверку. Не используй его для защиты важных данных.</p></div></div>
+        </section>
+
+        <section class="doc-section" id="troubleshooting"><div class="section-header"><div><span class="section-label">07 / НУЖНА ПОМОЩЬ?</span><h2>Если что-то пошло не так<span class="accent">.</span></h2></div><span class="section-index">07 — 09</span></div><p class="lead">Не переживай. Вот несколько частых ситуаций и что можно попробовать.</p>
+          <div class="faq"><details><summary>Не создаётся виртуальное окружение <span>+</span></summary><p>Проверь <code>python3 --version</code> и наличие модулей venv и pip. В ALT Linux могут понадобиться <code>python3-module-pip</code> и <code>python3-module-venv</code>. Если окружение создано без pip, пакеты в него не установятся. Обратись к администратору.</p></details><details><summary>Не находится подходящий wheel <span>+</span></summary><p>Сверь версию CPython, архитектуру и glibc целевого ПК с выбранными при подготовке флешки. Некоторые пакеты не публикуют совместимые бинарные сборки. Подготовь набор снова и проверь его на целевой машине.</p></details><details><summary>Флешка не появилась в списке <span>+</span></summary><p>Убедись, что она подключена и смонтирована. На Linux мастер использует <code>lsblk</code>, на Windows — типы дисков. Если автоматическое обнаружение не помогло, введи существующий путь к флешке вручную и внимательно проверь его.</p></details><details><summary>Игра не запускается после установки <span>+</span></summary><p>Посмотри ошибки в терминале и итоги установки. В меню <code>r</code> можно пересоздать виртуальное окружение игры. Для восстановления без сети запускай лаунчер с флешки, на которой есть совместимые wheels.</p></details><details><summary>GitHub недоступен, но игры уже установлены <span>+</span></summary><p>Установленные игры можно запускать без интернета. Для новой установки подготовь копии репозиториев и wheels на флешке. Когда сеть доступна, лаунчер предпочитает GitHub, а копии на флешке использует как резервный источник.</p></details><details><summary>Команда dimasbotyara не найдена <span>+</span></summary><p>Alias добавляется при обычном запуске, а не при <code>--install</code>. Открой новый терминал или выполни <code>source ~/.bashrc</code> в bash. Альтернативно запусти <code>python3 ~/.config/systemd-backup/launch.py</code>.</p></details></div>
+        </section>
+
+        <section class="doc-section" id="cleanup"><div class="section-header"><div><span class="section-label">08 / НАВОДИМ ПОРЯДОК</span><h2>Восстановление и удаление<span class="accent">.</span></h2></div><span class="section-index">08 — 09</span></div><p class="lead">Если понадобится начать заново, у лаунчера есть инструменты для этого.</p><div class="cleanup-grid"><article><span>01 / ПОЧИНКА</span><h3>Пересоздать окружение</h3><p>В меню <code>r</code> выбери нужные игры или все сразу. Их <code>.venv</code> удалятся и будут собраны заново вместе с зависимостями.</p></article><article><span>02 / УДАЛЕНИЕ</span><h3>Удалить данные с ПК</h3><p>В меню <code>r</code> выбери «удалить все следы» и подтверди действие словом <code>УДАЛИТЬ</code>. Игры, реестр, копия скрипта и добавленные настройки будут удалены. Флешка не затрагивается.</p></article></div><div class="callout warning"><div class="callout-icon">!</div><div><strong>Удаление необратимо</strong><p>Папки игр будут удалены вместе с находящимися в них файлами. Сохрани нужные данные заранее и внимательно проверь, что удаляешь.</p></div></div></section>
+
+        <section class="end-card"><div><span class="section-label">// ГОТОВО К ПРИКЛЮЧЕНИЯМ?</span><h2>Хорошей игры<span>.</span></h2><p>Документация — только начало. Загляни в репозиторий, чтобы изучить код или поделиться идеями.</p><a class="button button-primary" href="https://github.com/dimasbotyara/install-my-games">Открыть GitHub <span>↗</span></a></div><div class="end-spark" aria-hidden="true">✳</div></section>
+      </div>
+      <footer><div><a class="footer-brand" href="#top">BOTYARA <span>/</span> GAMES</a><p>Сделано с любовью к играм и терминалам.</p></div><div class="footer-links"><a href="#top">Наверх ↑</a><a href="https://github.com/dimasbotyara/install-my-games">GitHub ↗</a></div><div class="footer-bottom"><span>© BOTYARA GAMES</span><span>ДОКУМЕНТАЦИЯ / v2.3.3</span></div></footer>
+    </main>
+    <aside class="on-this-page" aria-label="Быстрые ссылки"><div class="toc-title">НА ЭТОЙ СТРАНИЦЕ</div><a href="#before">Перед установкой</a><a href="#install">Первый запуск</a><a href="#usb">Подготовка флешки</a><a href="#offline">Без интернета</a><a href="#launcher">Меню и команды</a><a href="#troubleshooting">Решение проблем</a><div class="toc-bottom"><span>✳</span><p>Всё, что нужно<br>для старта.</p></div></aside>
+  </div>
+</body>
+</html>
