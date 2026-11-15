@@ -67,6 +67,23 @@ on its own — no forgotten launcher windows hanging around afterwards. If a gam
 dies within the first second, the terminal is *not* cleared so its error output
 stays visible.
 
+## Web apps stay in the terminal 🌐
+
+A **web app** (Flask, Django, FastAPI, Bottle, Tornado, Sanic, Quart) is handled
+the other way round: it runs **in the launcher's terminal**, you see its log and
+the address it listens on, and `Ctrl+C` stops the server and returns you to the
+menu — no password prompt again, the session is already unlocked.
+
+The detection looks at the game's imports and asks one question: *is there a
+window?* A game that imports `pygame`/`tkinter`/Qt is a normal windowed game and
+gets detached even if it also talks to a web server in the background
+(`botyarapong`: pygame window + `werkzeug` multiplayer server — that one is
+detached). `werkzeug`/`aiohttp` alone are not treated as a web app either — they
+are often just a network engine inside a game.
+
+Stopping is stubborn-proof: `SIGTERM` first, `SIGKILL` five seconds later if the
+server ignores it.
+
 ## Entry point detection
 
 Scans each game in this priority order:
@@ -154,7 +171,7 @@ Double-protected: a confirmation plus typing `УДАЛИТЬ` by hand. The USB s
 
 | Key | Action |
 |-----|--------|
-| `1..N` or game name | launch (detached — the launcher closes) |
+| `1..N` or game name | launch (windowed games detach; web apps run in the terminal) |
 | `i` | install / update all games |
 | `a` | re-sync the registry |
 | `d` | delete a game |
@@ -190,10 +207,11 @@ python -m py_compile launch.py
 python -I -m unittest discover -s tests -v
 ```
 
-60+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
-versions, UI rendering, banner glyphs, menu alignment, update checks, selection
-parsing, repair, alias removal, wipe guard, self-install downgrade guard, real
-CLI runs) run in CI on Python 3.10–3.14.
+100+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
+versions, UI rendering, banner glyphs, menu alignment, update checks, web-app
+detection, terminal launching, password session, selection parsing, repair, alias
+removal, wipe guard, self-install downgrade guard, real CLI runs) run in CI on
+Python 3.10–3.14.
 Tests never touch the network or your real `HOME`.
 
 ## Disclaimer
