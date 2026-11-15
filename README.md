@@ -1,6 +1,6 @@
 # 🎮 BOTYARA GAMES — install-my-games
 
-One-file games installer & launcher for **school Linux computer labs**.
+Games installer & launcher for **school Linux computer labs** (v2.3.3).
 Runs from a **USB stick**: clones the games, builds venvs, installs dependencies,
 auto-detects entry points, keeps a game registry, shows PC specs and can even
 update itself from GitHub. Pure Python stdlib — **zero pip dependencies**.
@@ -33,7 +33,7 @@ python3 /run/media/you/FLASH/launch.py
    switches to "USB stick mode" and errors clearly instead of hanging.
 2. **Installs itself** to `~/.config/systemd-backup/launch.py` (never downgrades a
    newer GitHub-updated copy).
-3. **Adds an alias** to `~/.bashrc` (once, no duplicates):
+3. **Adds an alias** to `~/.bashrc` and `~/.zshrc` (once, no duplicates):
    ```bash
    alias dimasbotyara="python3 ~/.config/systemd-backup/launch.py"
    ```
@@ -55,8 +55,8 @@ Opening the launcher (and anything that does something: installing, launching,
 self-update) asks for a password. Input is hidden (`getpass`), 3 attempts.
 
 The password itself is **not stored anywhere**: only a salted SHA-256 hash lives
-in `launch.py`, compared in constant time (`hmac.compare_digest`). No rainbow
-table is going to reverse it, and reading the source won't reveal the secret.
+in `launch.py`, compared in constant time (`hmac.compare_digest`). This is only a basic gate: a short or weak password can still be guessed offline,
+and anyone with access to the script can bypass the check.
 To change the password, replace `AUTH_HASH` with
 `sha256(AUTH_SALT + ":" + new_password)`.
 
@@ -78,11 +78,10 @@ the address it listens on.
 
 - the app exits (you closed it / it crashed) → the launcher closes too and the
   screen is left clean, no server log hanging around in your terminal;
-- `Ctrl+C` → the server is stopped and you're back in the menu, password not
-  asked again (the session stays unlocked).
+- `Ctrl+C` → the server is stopped and the launcher closes too;
 
-The detection looks at the game's imports and asks one question: *is there a
-window?* A game that imports `pygame`/`tkinter`/Qt is a normal windowed game and
+The detection looks at the game's imports and names in `requirements.txt` (also
+local included requirements) and asks one question: *is there a window?* A game that imports `pygame`/`tkinter`/Qt is a normal windowed game and
 gets detached even if it also talks to a web server in the background
 (`botyarapong`: pygame window + `werkzeug` multiplayer server — that one is
 detached). `werkzeug`/`aiohttp` alone are not treated as a web app either — they
@@ -141,22 +140,68 @@ newest version it just says so and returns to the menu.
 > `dimasbotyara/install-my-games`. Bump `__version__` in `launch.py` for updates
 > to be detected.
 
-## Offline mode (the USB stick part)
+## Preparing a USB stick (Windows or Linux) 💾
 
-Put pre-cloned game repos next to the script:
+On a computer with internet, Python 3 with pip and Git, clone or download this
+repository and run from its directory:
+
+```bash
+python prepare_usb.py       # Windows: py prepare_usb.py
+```
+
+The wizard lists mounted removable drives (Linux uses `lsblk`; Windows uses drive
+types), or accepts a directory manually. Check the path before confirming: no
+disk is formatted. It creates `BOTYARA-GAMES/`, copies `launch.py`, then asks
+whether to download game repositories and Linux wheels separately. Wheels alone
+can be useful when games are already on the target PC; for a fresh offline PC,
+select **both**. Existing Git clones are updated; unrelated existing directories
+are not deleted. Failed downloads are reported and give a nonzero exit code.
+`BOTYARA_REPOS` also applies to the wizard.
+
+For wheels, specify the target **CPython version**, Linux CPU architecture
+(`x86_64` or `aarch64`) and minimum glibc baseline (`2.17` or `2.28`). On the
+target, check with `python3 --version`, `uname -m` and `ldd --version`. The
+wizard requests only binary wheels for Linux or platform-independent `any`,
+including dependencies, even when run on Windows. Packages without a compatible
+wheel cannot be prepared this way. One target combination is stored per game;
+preparing a different combination replaces that game's wheel set.
+
+**Cross-platform limitation:** pip may evaluate dependency environment markers
+using the *preparation* machine, not the target Linux machine. Windows-only or
+Linux-only conditional dependencies can therefore be missed or cause a failure.
+For best results prepare on a matching Linux system, and always test on the
+actual offline PC. Requirements with direct URLs or alternate package sources
+are rejected for offline preparation; this feature is for index packages with
+available wheels, not arbitrary source builds. Native system libraries, a
+working Python/venv/pip and any non-Python assets must already be installed on
+the target; a wheel is not a substitute for OS packages.
+
+## Offline installation from USB
+
+The prepared layout looks like this (or create it manually):
 
 ```
-FLASH/
+FLASH/BOTYARA-GAMES/
 ├── launch.py
-└── repos/
-    ├── botyarapong/      # plain git clones
-    ├── botyaraTD/
-    └── ...
+├── repos/
+│   ├── botyarapong/      # git clones
+│   └── botyaraTD/
+└── wheels/
+    ├── botyarapong/      # wheels for this game's requirements
+    └── botyaraTD/
 ```
 
 Without internet the installer copies games from `repos/` (keeping `.git`, so a
 later online `git pull` still works). Online always prefers GitHub — the stick
-copy is the fallback, not the source of truth.
+copy is the fallback, not the source of truth. Run the **USB copy** of
+`launch.py` on the Linux PC (or `python3 /path/to/BOTYARA-GAMES/launch.py
+--install`), so it can find the adjacent folders. When offline, pip installs
+from `wheels/<game>/` with `--no-index --only-binary=:all:`; it reports missing
+or incompatible wheels as installation failures instead of saying the game is
+ready. Direct links in requirements and wheel metadata are rejected offline.
+The installed launcher copy in `~/.config/systemd-backup/` does not automatically
+find a subsequently inserted stick; run the USB copy for installation or repair.
+An environment created without pip cannot install wheels until pip/venv is fixed.
 
 ## Repair & wipe 🔧
 
@@ -206,7 +251,7 @@ without duplicating the alias.
 | `r` | repair menu (rebuild venv, wipe all traces) |
 | `s` | PC specs |
 | `u` | update the script itself |
-| `q` | exit (offers a final update check when online) |
+| `q` | exit (no update check) |
 
 CLI: `--install`, `--sync`, `--specs`, `--update`, `--version`, `--help`, or
 `launch.py <game-name>` to launch straight from the shell.
@@ -225,17 +270,17 @@ BOTYARA_REPOS="botyarapong,botyaragames" python3 launch.py
 ## Requirements
 
 - ALT Linux Education (or any Linux, really) with `python3` and `git`
-- internet *for installing/updating* (playing works offline)
+- internet for updating, or a prepared USB stick with repositories and compatible wheels for offline installation
 - if `python3 -m venv` fails: `sudo apt-get install python3-module-pip python3-module-venv`
 
 ## Development
 
 ```bash
-python -m py_compile launch.py
+python -m py_compile launch.py prepare_usb.py
 python -I -m unittest discover -s tests -v
 ```
 
-115+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
+Stdlib-only smoke tests (entry detection, dependency scanning, registry,
 versions, UI rendering, banner glyphs, menu alignment, update checks, web-app
 detection, terminal launching, password session, quiet startup, shell history,
 selection parsing, repair, alias removal, wipe guard, self-install downgrade
