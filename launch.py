@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.3.0"
+__version__ = "2.3.1"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -274,6 +274,9 @@ def read_version(path):
 
 # ============================== ПАРОЛЬ ==============================
 
+_AUTH_STATE = {"ok": False}      # пароль уже введён в этом запуске
+
+
 def password_hash(pw):
     """Соль + SHA-256: готовый хэш не гуглится и в радужных таблицах не ищется."""
     return hashlib.sha256((AUTH_SALT + ":" + pw).encode("utf-8")).hexdigest()
@@ -283,17 +286,23 @@ def verify_password(pw):
     return hmac.compare_digest(password_hash(pw), AUTH_HASH)
 
 def require_password():
-    """Вход по паролю. Ввод не отображается (getpass). Неверный — 3 попытки."""
+    """Вход по паролю. Ввод не отображается (getpass). Неверный — 3 попытки.
+
+    Успешный ввод запоминается до конца процесса: вернувшись из веб-игры в
+    меню, пароль заново спрашивать не нужно.
+    """
+    if _AUTH_STATE["ok"]:
+        return True
     for attempt in range(1, AUTH_ATTEMPTS + 1):
         print(paint("  🔒 ", "yellow_b", "bold")
-              + paint("скрытный лаунчер — введи пароль (попытка %d/%d)" % (attempt, AUTH_ATTEMPTS),
-                      "fg_dim"))
+              + paint("введи пароль (попытка %d/%d)" % (attempt, AUTH_ATTEMPTS), "fg_dim"))
         try:
             pw = getpass.getpass(paint("  › ", "aqua_b", "bold"))
         except (EOFError, KeyboardInterrupt):
             print()
             return False
         if pw and verify_password(pw):
+            _AUTH_STATE["ok"] = True
             ok("доступ разрешён")
             return True
         warn("неа")
@@ -1165,11 +1174,131 @@ def show_specs():
 
 # ============================== ЗАПУСК ИГР ==============================
 
-def launch_detached(name, game, reg):
-    """Запускает игру откреплённо (setsid), чистит терминал и закрывает лаунчер.
+# Фреймворки, чьё приложение живёт в терминале и не открепляется:
+# это веб-серверы, и закрыть их «в никуда» неудобно — открыл случайно
+# браузер, и всё, остановить нечем.
+WEB_IMPORTS = {
+    "flask": "Flask",
+    "django": "Django",
+    "fastapi": "FastAPI",
+    "bottle": "Bottle",
+    "tornado": "Tornado",
+    "sanic": "Sanic",
+    "quart": "Quart",
+}
 
-    Возвращает True, если лаунчер пора закрыть (игра ушла в свободный полёт),
-    False — если остались в меню (например, игра сразу упала)."""
+# Окно на экране: такую игру открепляем, даже если где-то рядом крутится
+# веб-сервер (botyarapong: pygame + werkzeug для мультиплеера).
+GUI_IMPORTS = {
+    "pygame", "pygame_ce", "tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6",
+    "kivy", "arcade", "pyglet", "wx",
+}
+
+
+def _imports_of(path):
+    """Множество всех импортированных модулей в коде игры (без .venv/.git)."""
+    mods = set()
+    root = Path(path)
+    if not root.is_dir():
+        return mods
+    for p in root.rglob("*.py"):
+        parts = set(p.parts)
+        if ".venv" in parts or ".git" in parts:
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        mods.update(m.lower() for m in IMPORT_RE.findall(text))
+    return mods
+
+
+def detect_web(path):
+    """Имя веб-фреймворка, если игра — веб-приложение, иначе None.
+
+    В терминале запускаем именно веб-приложения, а не «всё, где встречается
+    flask»: у botyarapong pygame рисует окно, а werkzeug обслуживает
+    мультиплеер в фоне — это обычная игра, её открепляем.
+    """
+    mods = _imports_of(path)
+    if mods & GUI_IMPORTS:
+        return None
+    for mod in sorted(mods):
+        if mod in WEB_IMPORTS:
+            return WEB_IMPORTS[mod]
+    return None
+
+
+def _stop_process(proc):
+    """Мягко останавливает процесс: SIGTERM, потом SIGKILL, если не сдался.
+
+    Ни при каких обстоятельствах не бросает исключений — лаунчер должен
+    остаться живым, что бы ни случилось с сервером.
+    """
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+        return                      # вышел по-хорошему
+    except subprocess.TimeoutExpired:
+        pass                        # упёрся — сейчас добьём
+    except Exception:
+        return                      # процесс и так уже не наш
+    try:
+        proc.kill()                 # SIGKILL: последний аргумент
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def _run_in_terminal(name, py, path, entry, framework):
+    """Веб-приложение — прямо в этом терминале, с его логом и Ctrl+C.
+
+    Всегда возвращает False: после выхода из веб-игры лаунчер остаётся
+    живым и возвращает в меню (пароль заново спрашивать не будет).
+    """
+    clear()
+    print(paint("  🌐 %s — %s" % (name, framework), "yellow_b", "bold"))
+    print(paint("  работает в этом терминале: здесь его лог и адрес", "fg_dim"))
+    print(paint("  Ctrl+C — остановить и вернуться в меню лаунчера", "fg_dim"))
+    print()
+
+    try:
+        proc = subprocess.Popen([py, str(Path(path) / entry)], cwd=str(path))
+    except Exception as e:
+        err("не запустилось: %s" % e)
+        pause()
+        return False
+
+    try:
+        code = proc.wait()
+    except KeyboardInterrupt:
+        # Ctrl+C здесь — просьба остановить сервер, а не уронить лаунчер
+        print()
+        info("останавливаю %s..." % name)
+        _stop_process(proc)
+        print(paint("  ✔ %s остановлена" % name, "green_b"))
+        time.sleep(0.6)
+        return False        # назад в меню, пароль спрашивать уже не будем
+
+    print()
+    if code == 0:
+        ok("%s завершилась нормально" % name)
+    else:
+        err("%s завершилась с кодом %s" % (name, code))
+    pause("Enter — вернуться в меню")
+    return False
+
+
+def launch_detached(name, game, reg):
+    """Запускает игру. Возвращает True, если лаунчеру пора закрыться.
+
+    Обычная игра (pygame и прочее окно) — открепляем через setsid, чистим
+    терминал и закрываем лаунчер: окно живёт само, лаунчер не мешает.
+
+    Веб-приложение (Flask, Django...) — наоборот, запускаем в этом же
+    терминале и ждём: закрыть такой сервер иначе неудобно, а Ctrl+C
+    останавливает его и возвращает в меню.
+    """
     path = Path(game.get("path", ""))
     entry = game.get("entry")
 
@@ -1193,6 +1322,10 @@ def launch_detached(name, game, reg):
         py = sys.executable
         warn("venv нет — запускаю системным python")
 
+    framework = detect_web(path)
+    if framework:
+        return _run_in_terminal(name, py, path, entry, framework)
+
     info("запускаю %s (%s) откреплённо..." % (name, entry))
     try:
         proc = subprocess.Popen([py, str(path / entry)], cwd=str(path),
@@ -1212,6 +1345,7 @@ def launch_detached(name, game, reg):
 
     clear()  # терминал пустой, игра живёт своей жизнью, лаунчер закрывается
     return True
+
 
 def delete_game(reg):
     clear()
@@ -1452,7 +1586,9 @@ def menu_loop(reg):
         if choice in ("q", "quit", "exit", "выход", "й"):
             print()
             exit_flow()
-            print(paint("  ✨ пока! и не забудь вынести мусор из класса", "fg_dim", "italic"))
+            print(paint("  ✨ пока!", "fg_dim", "italic"))
+            time.sleep(1.0)     # даём прочитать, и только потом убираем экран
+            clear()
             return
 
         if choice in ("i", "ш"):

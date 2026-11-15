@@ -585,6 +585,158 @@ class InstallSummary(unittest.TestCase):
         self.assertIn("ИТОГИ УСТАНОВКИ", out)
 
 
+class WebDetection(unittest.TestCase):
+    """Веб-приложения запускаются в терминале, обычные игры — открепляются."""
+
+    def test_flask_app_is_web(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "casino",
+                          {"app.py": "from flask import Flask\napp = Flask(__name__)\n"})
+            self.assertEqual(launch.detect_web(d), "Flask")
+
+    def test_django_app_is_web(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "site", {"manage.py": "import django\n"})
+            self.assertEqual(launch.detect_web(d), "Django")
+
+    def test_pygame_game_is_not_web(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "pong", {"run.py": "import pygame\n"})
+            self.assertIsNone(launch.detect_web(d))
+
+    def test_pygame_with_background_server_is_not_web(self):
+        """botyarapong: pygame рисует окно, werkzeug крутит мультиплеер в фоне.
+
+        Это обычная игра с окном — её открепляем, а не держим в терминале.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "pong", {
+                "run.py": "import pygame\n",
+                "network.py": "from werkzeug.serving import make_server\n",
+            })
+            self.assertIsNone(launch.detect_web(d))
+
+    def test_werkzeug_alone_is_not_a_web_app(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "tool", {"run.py": "import werkzeug\n"})
+            self.assertIsNone(launch.detect_web(d))
+
+    def test_venv_is_ignored(self):
+        """Flask в .venv чужой игры не делает игру веб-приложением."""
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "game", {"run.py": "import pygame\n"})
+            planted = d / ".venv" / "lib"
+            planted.mkdir(parents=True)
+            (planted / "x.py").write_text("from flask import Flask\n", encoding="utf-8")
+            self.assertIsNone(launch.detect_web(d))
+
+    def test_missing_folder(self):
+        self.assertIsNone(launch.detect_web("/nonexistent/nope"))
+
+
+class TerminalLaunch(unittest.TestCase):
+    """Веб-приложение: лаунчер ждёт и НЕ открепляет процесс."""
+
+    def _patches(self, fake_wait):
+        return [
+            unittest.mock.patch.object(launch, "Popen", create=True),
+            unittest.mock.patch.object(launch.subprocess, "Popen"),
+        ]
+
+    def test_web_game_runs_in_terminal(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
+            proc = unittest.mock.MagicMock()
+            proc.wait.return_value = 0
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
+                 unittest.mock.patch.object(launch, "pause"), \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 redirect_stdout(io.StringIO()) as buf:
+                result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
+            self.assertFalse(result, "после веб-игры лаунчер должен остаться живым")
+            kwargs = popen.call_args.kwargs
+            self.assertNotIn("start_new_session", kwargs,
+                             "веб-приложение нельзя откреплять от терминала")
+            self.assertIn("Flask", buf.getvalue())
+
+    def test_ctrl_c_stops_server_and_keeps_launcher(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
+            proc = unittest.mock.MagicMock()
+            # первый wait — Ctrl+C; после terminate сервер выходит штатно
+            proc.wait.side_effect = [KeyboardInterrupt, 0]
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc), \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 redirect_stdout(io.StringIO()):
+                result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
+            self.assertFalse(result, "после Ctrl+C лаунчер должен остаться живым")
+            proc.terminate.assert_called_once()
+            self.assertGreaterEqual(proc.wait.call_count, 2)   # дождались завершения
+
+    def test_stubborn_server_gets_killed(self):
+        """Сервер не реагирует на terminate — его добивают, лаунчер жив."""
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
+            proc = unittest.mock.MagicMock()
+            proc.wait.side_effect = [KeyboardInterrupt, subprocess.TimeoutExpired("x", 5), 0]
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc), \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 redirect_stdout(io.StringIO()):
+                result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
+            self.assertFalse(result)
+            proc.kill.assert_called_once()
+
+    def test_game_launch_detaches_pygame(self):
+        """Обычная игра по-прежнему уходит в свою сессию."""
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "pong", {"run.py": "import pygame\n"})
+            proc = unittest.mock.MagicMock()
+            proc.poll.return_value = None
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 unittest.mock.patch.object(launch.time, "sleep"), \
+                 redirect_stdout(io.StringIO()):
+                result = launch.launch_detached(
+                    "pong", {"path": str(d), "entry": "run.py", "python": "py"}, {})
+            self.assertTrue(result, "pygame-игра должна открепляться и закрывать лаунчер")
+            self.assertTrue(popen.call_args.kwargs.get("start_new_session"))
+
+
+class SessionAndFarewell(unittest.TestCase):
+    def test_password_asked_once_per_run(self):
+        """Вернулись из веб-игры в меню — пароль заново не спрашиваем."""
+        old = dict(launch._AUTH_STATE)
+        launch._AUTH_STATE["ok"] = False
+        try:
+            with unittest.mock.patch.object(launch, "password_hash", return_value="x"), \
+                 unittest.mock.patch.object(launch, "AUTH_HASH", "x"), \
+                 unittest.mock.patch.object(launch, "getpass") as gp, \
+                 redirect_stdout(io.StringIO()):
+                gp.getpass.return_value = "topsecret"
+                self.assertTrue(launch.require_password())
+                self.assertTrue(launch.require_password())
+                self.assertTrue(launch.require_password())
+            self.assertEqual(gp.getpass.call_count, 1,
+                             "пароль должен спрашиваться один раз за запуск")
+        finally:
+            launch._AUTH_STATE.update(old)
+
+    def test_failed_password_is_not_remembered(self):
+        old = dict(launch._AUTH_STATE)
+        launch._AUTH_STATE["ok"] = False
+        try:
+            with unittest.mock.patch.object(launch, "verify_password", return_value=False), \
+                 unittest.mock.patch.object(launch, "getpass") as gp, \
+                 unittest.mock.patch.object(launch.time, "sleep"), \
+                 redirect_stdout(io.StringIO()):
+                gp.getpass.return_value = "wrong"
+                self.assertFalse(launch.require_password())
+            self.assertFalse(launch._AUTH_STATE["ok"])
+            self.assertGreater(gp.getpass.call_count, 1)
+        finally:
+            launch._AUTH_STATE.update(old)
+
+
 class Versioning(unittest.TestCase):
     def test_vtuple(self):
         self.assertEqual(launch.vtuple("2.0.0"), (2, 0, 0))
