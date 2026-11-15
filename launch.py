@@ -25,9 +25,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
-__version__ = "2.3.2"
+__version__ = "2.3.3"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -60,6 +62,7 @@ REGISTRY_FILE = PROJECTS_DIR / ".registry.json"
 INSTALLED_SCRIPT = PROJECTS_DIR / "launch.py"
 SCRIPT_DIR = Path(__file__).resolve().parent
 FLASH_REPOS_DIR = SCRIPT_DIR / "repos"      # оффлайн-копии игр на флешке
+FLASH_WHEELS_DIR = SCRIPT_DIR / "wheels"    # колёса отдельно для каждой игры
 
 MENU_COL_W = 26          # ширина первого столбца главного меню (с отступом)
 
@@ -605,7 +608,8 @@ def ensure_venv(project):
 
 def pip_install(py_bin, args):
     try:
-        r = subprocess.run([str(py_bin), "-m", "pip", "install", "--disable-pip-version-check",
+        isolated = ["--isolated"] if "--no-index" in args else []
+        r = subprocess.run([str(py_bin), "-m", "pip", *isolated, "install", "--disable-pip-version-check",
                             "-q", *args], capture_output=True, text=True, timeout=600)
         if r.returncode == 0:
             return True, ""
@@ -613,6 +617,53 @@ def pip_install(py_bin, args):
         return False, " / ".join(tail)
     except Exception as e:
         return False, str(e)
+
+def offline_requirements_safe(requirements):
+    """Не позволяем requirements переключить pip на URL/другой источник офлайн."""
+    seen = set()
+
+    def check(file):
+        file = Path(file).resolve()
+        if file in seen:
+            return True, ""
+        seen.add(file)
+        try:
+            lines = file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as exc:
+            return False, "не удалось прочитать %s: %s" % (file, exc)
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            nested = re.match(r"^(?:-r|-c|--requirement|--constraint)(?:\s+|=)([^\s#]+)", line)
+            if nested:
+                result = check(file.parent / nested.group(1))
+                if not result[0]:
+                    return result
+            elif (re.search(r"(?:https?://|file:|git\+|ftp://|\s@\s)", line, re.I)
+                  or re.match(r"^(?:-e|--editable|-i|--index-url|--extra-index-url|-f|--find-links)", line)):
+                return False, "в requirements есть прямая ссылка или внешний источник: %s" % line
+        return True, ""
+
+    return check(requirements)
+
+
+def offline_wheels_safe(directory):
+    """Прямые ссылки в метаданных wheel обходят pip --no-index."""
+    for wheel in Path(directory).glob("*.whl"):
+        try:
+            with zipfile.ZipFile(wheel) as archive:
+                metadata = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+                if len(metadata) != 1:
+                    return False, "неверные метаданные wheel: %s" % wheel.name
+                message = BytesParser().parsebytes(archive.read(metadata[0]))
+                for dependency in message.get_all("Requires-Dist", []):
+                    if re.search(r"(?:\s@\s|https?://|file:|git\+|ftp://)", dependency, re.I):
+                        return False, "прямая ссылка в метаданных wheel: %s" % wheel.name
+        except (OSError, zipfile.BadZipFile, KeyError) as exc:
+            return False, "не удалось прочитать wheel %s: %s" % (wheel.name, exc)
+    return True, ""
+
 
 def find_flash_repos():
     """Оффлайн-копии игр рядом со скриптом (папка repos/ на флешке)."""
@@ -731,22 +782,35 @@ def setup_project(project, reg, online, interactive=True):
     print(kv("venv", paint(note, "green_b" if py_bin else "red_b")))
     if py_bin is None:
         reg[name] = {"path": str(project), "entry": entry, "python": sys.executable}
-        return entry is not None
+        return False
 
     # --- установка зависимостей ---
     if deps:
-        if not online:
-            warn("нет сети — пакеты не ставились, запусти установку при интернете")
+        wheels = FLASH_WHEELS_DIR / name
+        if not online and wheels.is_dir():
+            info("pip: установка из wheel-файлов флешки (без индекса)")
+            safe, reason = offline_requirements_safe(req) if req.is_file() else (True, "")
+            if safe:
+                safe, reason = offline_wheels_safe(wheels)
+            if safe:
+                pip_ok, pip_err = pip_install(py_bin, ["--no-index", "--find-links", str(wheels),
+                                                       "--only-binary=:all:", *deps])
+            else:
+                pip_ok, pip_err = False, reason
+        elif not online:
+            pip_ok, pip_err = False, "нет сети и wheel-файлов для этой игры на флешке"
         else:
             pip_ok, pip_err = pip_install(py_bin, deps)
-            if pip_ok:
-                ok("pip: установлено/обновлено")
-            else:
-                err("pip: %s" % (pip_err or "ошибка"))
+        if pip_ok:
+            ok("pip: установлено/обновлено")
+        else:
+            err("pip: %s" % (pip_err or "ошибка"))
+            reg[name] = {"path": str(project), "entry": entry, "python": str(py_bin)}
+            return False
 
     reg[name] = {"path": str(project), "entry": entry, "python": str(py_bin)}
     ok("готово")
-    return True
+    return entry is not None
 
 def install_games(online, reg, interactive=True):
     """Клонирует/обновляет все игры из REPO_LIST и настраивает их."""
@@ -813,6 +877,8 @@ def install_games(online, reg, interactive=True):
         if dest.is_dir() and any(dest.glob("*.py")):
             if setup_project(dest, reg, online, interactive):
                 stats["ok"].append(repo)
+            elif repo not in stats["failed"]:
+                stats["failed"].append(repo)
         else:
             reg.pop(repo, None)
 
@@ -1290,6 +1356,32 @@ def _imports_of(path):
     return mods
 
 
+def _requirement_names(path):
+    """Имена из requirements.txt и локальных вложенных файлов; без pip-зависимостей."""
+    names, seen = set(), set()
+
+    def read(req):
+        req = req.resolve()
+        if req in seen:
+            return
+        seen.add(req)
+        try:
+            lines = req.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            return
+        for line in lines:
+            line = line.strip()
+            nested = re.match(r"^(?:-r|-c|--requirement|--constraint)(?:\s+|=)([^\s#]+)", line)
+            if nested:
+                read(req.parent / nested.group(1))
+            elif not line.startswith(("#", "-")):
+                match = re.match(r"([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
+                if match:
+                    names.add(match.group(1).lower().replace("-", "_"))
+    read(Path(path) / "requirements.txt")
+    return names
+
+
 def detect_web(path):
     """Имя веб-фреймворка, если игра — веб-приложение, иначе None.
 
@@ -1297,8 +1389,8 @@ def detect_web(path):
     flask»: у botyarapong pygame рисует окно, а werkzeug обслуживает
     мультиплеер в фоне — это обычная игра, её открепляем.
     """
-    mods = _imports_of(path)
-    if mods & GUI_IMPORTS:
+    mods = _imports_of(path) | _requirement_names(path)
+    if mods & {name.lower() for name in GUI_IMPORTS}:
         return None
     for mod in sorted(mods):
         if mod in WEB_IMPORTS:
@@ -1330,13 +1422,12 @@ def _stop_process(proc):
 def _run_in_terminal(name, py, path, entry, framework):
     """Веб-приложение — прямо в этом терминале, с его логом и Ctrl+C.
 
-    Всегда возвращает False: после выхода из веб-игры лаунчер остаётся
-    живым и возвращает в меню (пароль заново спрашивать не будет).
+    После завершения процесса закрывает лаунчер; ошибки запуска возвращают в меню.
     """
     clear()
     print(paint("  🌐 %s — %s" % (name, framework), "yellow_b", "bold"))
     print(paint("  лог и адрес — здесь же. выход из приложения закроет лаунчер", "fg_dim"))
-    print(paint("  Ctrl+C — остановить и вернуться в меню", "fg_dim"))
+    print(paint("  Ctrl+C — остановить приложение и закрыть лаунчер", "fg_dim"))
     print()
 
     try:
@@ -1346,35 +1437,20 @@ def _run_in_terminal(name, py, path, entry, framework):
         pause()
         return False
 
-    stopped_by_user = False
     try:
         code = proc.wait()
     except KeyboardInterrupt:
-        # Ctrl+C здесь — просьба остановить сервер, а не уронить лаунчер
         print()
         info("останавливаю %s..." % name)
         _stop_process(proc)
-        ok("%s остановлена — возвращаемся в меню" % name)
-        time.sleep(0.6)
-        return False        # назад в меню, пароль спрашивать уже не будем
+        code = None
 
-    print()
-    if code == 0:
-        ok("%s завершилась нормально" % name)
-    else:
-        err("%s завершилась с кодом %s" % (name, code))
-    # Ctrl+C, обработанный самим приложением, тоже приходит сюда
-    try:
-        pause("Enter — вернуться в меню")
-    except KeyboardInterrupt:
-        stopped_by_user = True
-    if stopped_by_user:
-        return False
-    # Приложение отработало и закрылось — лаунчер тоже закрывается и чистит
-    # экран: оставлять после себя лог сервера незачем.
-    time.sleep(0.8)
-    print(paint("  ✨ пока!", "fg_dim", "italic"))
-    time.sleep(1.0)
+    if code is not None:
+        print()
+        if code == 0:
+            ok("%s завершилась нормально" % name)
+        else:
+            err("%s завершилась с кодом %s" % (name, code))
     clear_screen_for_exit()
     return True
 
@@ -1387,7 +1463,7 @@ def launch_detached(name, game, reg):
 
     Веб-приложение (Flask, Django...) — наоборот, запускаем в этом же
     терминале и ждём: закрыть такой сервер иначе неудобно, а Ctrl+C
-    останавливает его и возвращает в меню.
+    останавливает его и закрывает лаунчер.
     """
     path = Path(game.get("path", ""))
     entry = game.get("entry")
@@ -1815,7 +1891,7 @@ def main(argv=None):
             return 0
         stats = install_games(online, reg)
         install_summary(stats)
-        return 0
+        return 1 if stats.get("failed") else 0
 
     # ---- обычный режим / запуск игры по имени ----
     online = startup_flow()

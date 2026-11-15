@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Byte-compile launch.py
-        run: python -m py_compile launch.py
+      - name: Byte-compile scripts
+        run: python -m py_compile launch.py prepare_usb.py
 
       - name: Smoke — CLI entry points
         run: |

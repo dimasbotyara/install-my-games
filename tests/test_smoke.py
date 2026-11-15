@@ -663,8 +663,8 @@ class TerminalLaunch(unittest.TestCase):
                              "веб-приложение нельзя откреплять от терминала")
             self.assertIn("Flask", buf.getvalue())
 
-    def test_ctrl_c_returns_to_menu_not_exit(self):
-        """Ctrl+C — это «остановить сервер», а не «выйти из лаунчера»."""
+    def test_ctrl_c_closes_launcher(self):
+        """Ctrl+C останавливает сервер и закрывает лаунчер."""
         with tempfile.TemporaryDirectory() as td:
             d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
             proc = unittest.mock.MagicMock()
@@ -673,9 +673,9 @@ class TerminalLaunch(unittest.TestCase):
                  unittest.mock.patch.object(launch, "clear"), \
                  redirect_stdout(io.StringIO()):
                 result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
-            self.assertFalse(result, "после Ctrl+C лаунчер должен жить и вернуть в меню")
+            self.assertTrue(result, "после Ctrl+C лаунчер должен закрыться")
 
-    def test_ctrl_c_stops_server_and_keeps_launcher(self):
+    def test_ctrl_c_stops_server_and_closes_launcher(self):
         with tempfile.TemporaryDirectory() as td:
             d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
             proc = unittest.mock.MagicMock()
@@ -685,12 +685,12 @@ class TerminalLaunch(unittest.TestCase):
                  unittest.mock.patch.object(launch, "clear"), \
                  redirect_stdout(io.StringIO()):
                 result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
-            self.assertFalse(result, "после Ctrl+C лаунчер должен остаться живым")
+            self.assertTrue(result, "после Ctrl+C лаунчер должен закрыться")
             proc.terminate.assert_called_once()
             self.assertGreaterEqual(proc.wait.call_count, 2)   # дождались завершения
 
     def test_stubborn_server_gets_killed(self):
-        """Сервер не реагирует на terminate — его добивают, лаунчер жив."""
+        """Сервер не реагирует на terminate — его добивают."""
         with tempfile.TemporaryDirectory() as td:
             d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
             proc = unittest.mock.MagicMock()
@@ -699,7 +699,7 @@ class TerminalLaunch(unittest.TestCase):
                  unittest.mock.patch.object(launch, "clear"), \
                  redirect_stdout(io.StringIO()):
                 result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
-            self.assertFalse(result)
+            self.assertTrue(result)
             proc.kill.assert_called_once()
 
     def test_game_launch_detaches_pygame(self):

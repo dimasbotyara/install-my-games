@@ -21,3 +21,6 @@ repos/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Offline wheel bundles
+wheels/
