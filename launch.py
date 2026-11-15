@@ -18,14 +18,16 @@ import platform
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -58,6 +60,8 @@ REGISTRY_FILE = PROJECTS_DIR / ".registry.json"
 INSTALLED_SCRIPT = PROJECTS_DIR / "launch.py"
 SCRIPT_DIR = Path(__file__).resolve().parent
 FLASH_REPOS_DIR = SCRIPT_DIR / "repos"      # оффлайн-копии игр на флешке
+
+MENU_COL_W = 26          # ширина первого столбца главного меню (с отступом)
 
 ALIAS_NAME = "dimasbotyara"
 ALIAS_LINE = 'alias %s="python3 ~/.config/systemd-backup/launch.py"' % ALIAS_NAME
@@ -170,7 +174,7 @@ def hr(char="─", color="fg_dim"):
 
 # ANSI Shadow font
 _BANNER_LETTERS = {
-    "B": ["██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "],
+    "B": ["██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "██████╔╝", "╚═════╝ "],
     "O": [" ██████╗ ", "██╔═══██╗", "██║   ██║", "██║   ██║", "╚██████╔╝", " ╚═════╝ "],
     "T": ["████████╗", "╚══██╔══╝", "   ██║   ", "   ██║   ", "   ██║   ", "   ╚═╝   "],
     "Y": ["██╗   ██╗", "╚██╗ ██╔╝", " ╚████╔╝ ", "  ╚██╔╝  ", "   ██║   ", "   ╚═╝   "],
@@ -181,7 +185,7 @@ _SMALL_LETTERS = {
     "B": ["╔╗ ", "╠╩╗", "╚═╝"], "O": ["╔═╗", "║ ║", "╚═╝"], "T": ["╔═╗", " ║ ", " ╩ "],
     "Y": ["╦╔═", "╠╩╗", "╩ ╩"], "A": ["╔═╗", "╠═╣", "╩ ╩"], "R": ["╦═╗", "╠╦╝", "╩╚═"],
 }
-_BANNER_COLORS = ["red_b", "orange_b", "yellow_b", "green_b", "aqua_b", "blue_b", "purple_b"]
+_BANNER_COLORS = ["yellow_b", "yellow_b", "fg", "fg", "orange_b"]
 
 def banner_lines():
     """Большой баннер, если влезает, иначе маленький."""
@@ -203,16 +207,17 @@ def panel(lines, title=None, accent="blue"):
     cw = max([width(l) for l in lines] + [20] + ([width(title) + 4] if title else []))
     inner = cw + 2
     b = paint
+    edge = "fg_dim"  # рамка в gruvbox — только заголовок цветной
     if title and inner - width(title) - 3 >= 1:
         fill = inner - width(title) - 3
-        print(b("╭─", accent) + b(" " + title + " ", accent, "bold")
-              + b("─" * fill, accent) + b("╮", accent))
+        print(b("╭─", edge) + b(" " + title + " ", accent, "bold")
+              + b("─" * fill, edge) + b("╮", edge))
     else:
-        print(b("╭", accent) + b("─" * inner, accent) + b("╮", accent))
+        print(b("╭", edge) + b("─" * inner, edge) + b("╮", edge))
     for l in lines:
         pad = cw - width(l)
-        print(b("│", accent) + " " + l + " " * pad + " " + b("│", accent))
-    print(b("╰", accent) + b("─" * inner, accent) + b("╯", accent))
+        print(b("│", edge) + " " + l + " " * pad + " " + b("│", edge))
+    print(b("╰", edge) + b("─" * inner, edge) + b("╯", edge))
 
 def kv(label, value, w=15):
     return paint("  " + label.ljust(w), "fg_dim") + value
@@ -298,16 +303,81 @@ def require_password():
 
 # ============================== СЕТЬ ==============================
 
-def internet_ok(timeout=2.5):
-    """Быстрая проверка: сначала IP-адреса (без DNS), потом github.com."""
-    for host, port in (("1.1.1.1", 53), ("8.8.8.8", 53), ("9.9.9.9", 53), ("github.com", 443)):
+_NET_CACHE = {"ok": None, "ts": 0.0}
+NET_CACHE_TTL = 15.0        # секунд: за один запуск не дёргаем сеть повторно
+
+
+def internet_ok(timeout=0.8, force=False):
+    """Быстрая проверка сети: TCP до IP (без DNS) или до github.com.
+
+    Результат кэшируется на NET_CACHE_TTL секунд — иначе каждый пункт меню
+    и выход из него заново ждут таймауты, а на школьной сети с фильтрацией
+    это до 3 секунд на вызов.
+
+    Если задан HTTPS_PROXY/HTTP_PROXY (типично для школьного прокси), прямой
+    TCP-коннект ничего не доказывает: ходим через сам прокси.
+    """
+    now = time.monotonic()
+    if not force and _NET_CACHE["ok"] is not None and now - _NET_CACHE["ts"] < NET_CACHE_TTL:
+        return _NET_CACHE["ok"]
+
+    proxy = _proxy_url()
+    if proxy:
+        return _net_remember(_origin_reachable(proxy))
+
+    for host, port in (("1.1.1.1", 53), ("8.8.8.8", 53), ("github.com", 443)):
         try:
             s = socket.create_connection((host, port), timeout=timeout)
             s.close()
-            return True
+            return _net_remember(True)
         except OSError:
             continue
-    return False
+    return _net_remember(False)
+
+
+def _net_remember(ok):
+    _NET_CACHE["ok"] = ok
+    _NET_CACHE["ts"] = time.monotonic()
+    return ok
+
+
+def _proxy_url():
+    """URL прокси из окружения (в ALT Linux его обычно прописывают в profile.d)."""
+    for var in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        val = (os.environ.get(var) or "").strip()
+        if val:
+            return val if "://" in val else "http://" + val
+    return ""
+
+
+def _origin_reachable(proxy_url, timeout=3.0):
+    """Проверяем, что через прокси реально достаётся github.com.
+
+    HTTPS-прокси (TLS до самого прокси) проверяем рукопожатием, обычный
+    HTTP-прокси — настоящим запросом к github.com.
+    """
+    url = proxy_url if "://" in proxy_url else "http://" + proxy_url
+    host, port = _proxy_hostport(url)
+    try:
+        if url.lower().startswith("https://"):
+            ctx = ssl.create_default_context()
+            raw = socket.create_connection((host, port), timeout=timeout)
+            try:
+                with ctx.wrap_socket(raw, server_hostname=host):
+                    return True        # прокси жив и говорит по TLS
+            finally:
+                raw.close()
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": url, "https": url}))
+        with opener.open("https://github.com", timeout=timeout) as resp:
+            return resp.status < 500
+    except Exception:
+        return False
+
+
+def _proxy_hostport(url):
+    parts = urllib.parse.urlsplit(url)
+    return parts.hostname or "127.0.0.1", parts.port or 8080
 
 # ============================== РЕЕСТР ==============================
 
@@ -358,12 +428,14 @@ def detect_imports(project):
     mods = set()
     count = 0
     for p in project.rglob("*.py"):
-        count += 1
-        if count > 400:
-            break
         parts = set(p.parts)
         if ".venv" in parts or ".git" in parts:
             continue
+        # лимит — только на реальный код игры: в .venv тысячи файлов,
+        # и раньше они выжигали бюджет ещё до того, как доходило до игры
+        count += 1
+        if count > 400:
+            break
         try:
             mods.update(IMPORT_RE.findall(p.read_text(encoding="utf-8", errors="ignore")))
         except Exception:
@@ -511,22 +583,59 @@ def git_clone(url, dest):
     except Exception as e:
         return False, str(e)
 
-def git_pull(dest):
+def _git(dest, *args, timeout=300):
+    """Запускает git в папке игры. Возвращает CompletedProcess или None."""
     try:
-        r = subprocess.run(["git", "-C", str(dest), "pull", "--ff-only", "--depth", "1", "-q"],
-                           capture_output=True, text=True, timeout=300)
-        if r.returncode == 0:
-            return True, "обновлён"
-        # неглубокая копия могла запутать git — пробуем без --depth
-        r = subprocess.run(["git", "-C", str(dest), "pull", "--ff-only", "-q"],
-                           capture_output=True, text=True, timeout=300)
-        if r.returncode == 0:
-            return True, "обновлён"
-        if "not possible" in (r.stderr or "") or "diverging" in (r.stderr or ""):
-            return False, "ветка разошлась"
-        return False, "нет сети или ошибка git"
-    except Exception as e:
-        return False, str(e)
+        return subprocess.run(["git", "-C", str(dest), *args],
+                              capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def _head_sha(dest):
+    """SHA текущего коммита или None, если это не git-репозиторий."""
+    r = _git(dest, "rev-parse", "HEAD", timeout=30)
+    return r.stdout.strip() if r and r.returncode == 0 and r.stdout.strip() else None
+
+
+def _is_shallow(dest):
+    r = _git(dest, "rev-parse", "--is-shallow-repository", timeout=30)
+    return bool(r) and r.returncode == 0 and r.stdout.strip() == "true"
+
+
+def git_pull(dest):
+    """Обновляет игру из origin. Возвращает (успех, сообщение, было_ли_что_новое).
+
+    Обычный `git pull --ff-only`, а если клон «мелкий» (`git clone --depth 1`,
+    как ставит сам лаунчер) и обновиться не вышло — сперва `fetch --unshallow`.
+
+    Мелкий клон не умеет fast-forward на новые коммиты («Not possible to
+    fast-forward»), поэтому игра, обновлённая после установки, раньше не
+    могла обновиться уже никогда.
+
+    Было ли что-то новое, решаем по SHA HEAD до и после: parse-ить
+    локализованный вывод git-а нельзя.
+    """
+    before = _head_sha(dest)
+    r = _git(dest, "pull", "--ff-only", "--depth", "1", "-q")
+    ok = bool(r) and r.returncode == 0
+
+    if not ok and _is_shallow(dest):
+        _git(dest, "fetch", "--unshallow", "-q")
+        r = _git(dest, "pull", "--ff-only", "-q")
+        ok = bool(r) and r.returncode == 0
+
+    if ok:
+        after = _head_sha(dest)
+        if after and after != before:
+            return True, "обновлён", True
+        return True, "уже новейшая", False
+
+    stderr = (r.stderr or "") if r else ""
+    if "not possible" in stderr.lower() or "diverging" in stderr.lower():
+        return False, "ветка разошлась", False
+    return False, "нет сети или ошибка git", False
+
 
 def setup_project(project, reg, online, interactive=True):
     """venv + зависимости + точка входа для одной игры. Возвращает True если ок."""
@@ -592,7 +701,8 @@ def install_games(online, reg, interactive=True):
     """Клонирует/обновляет все игры из REPO_LIST и настраивает их."""
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     flash = find_flash_repos()
-    stats = {"new": [], "updated": [], "ok": [], "failed": []}
+    # updated — реально обновлённые; fresh — уже были новейшими (не трогали)
+    stats = {"new": [], "updated": [], "fresh": [], "ok": [], "failed": []}
 
     if flash:
         info("на флешке найдены оффлайн-копии: %s" % ", ".join(sorted(flash)))
@@ -602,10 +712,13 @@ def install_games(online, reg, interactive=True):
         print()
         if dest.is_dir() and (dest / ".git").is_dir():
             if online:
-                good, msg = git_pull(dest)
-                if good:
+                good, msg, changed = git_pull(dest)
+                if good and changed:
                     ok("%s: %s" % (repo, msg))
                     stats["updated"].append(repo)
+                elif good:
+                    dim("%s: %s" % (repo, msg))
+                    stats["fresh"].append(repo)
                 else:
                     err("%s: не обновился (%s)" % (repo, msg))
                     stats["failed"].append(repo)
@@ -650,15 +763,20 @@ def install_games(online, reg, interactive=True):
 
 def install_summary(stats):
     print()
+    fresh = stats.get("fresh", [])
     lines = [
-        kv("новые", paint(str(len(stats["new"])), "green_b")),
-        kv("обновлённые", paint(str(len(stats["updated"])), "blue_b")),
-        kv("настроены", paint(str(len(stats["ok"])), "green_b")),
+        kv("новые", str(len(stats["new"]))),
+        kv("обновлённые", str(len(stats["updated"]))),
+        kv("уже новейшие", paint(str(len(fresh)), "fg_dim")),
+        kv("настроены", str(len(stats["ok"]))),
         kv("ошибки", paint(str(len(stats["failed"])), "red_b" if stats["failed"] else "green_b")),
     ]
     if stats["failed"]:
         lines.append(paint("  " + ", ".join(stats["failed"]), "red"))
-    panel(lines, title="ИТОГИ УСТАНОВКИ", accent="purple")
+    if fresh and not stats["new"] and not stats["updated"] and not stats["failed"]:
+        lines.append("")
+        lines.append(paint("  всё уже было свежим — обновлять нечего 😌", "green_b"))
+    panel(lines, title="ИТОГИ УСТАНОВКИ", accent="yellow")
 
 # ============================== ALIAS / САМОУСТАНОВКА ==============================
 
@@ -731,63 +849,105 @@ def self_install():
 
 # ============================== САМООБНОВЛЕНИЕ ==============================
 
-def self_update():
-    """Качает свежий launch.py с GitHub raw и подменяет установленную копию."""
-    print()
-    if not internet_ok():
-        err("нет интернета — обновление недоступно")
-        return
-    url = "https://raw.githubusercontent.com/%s/main/launch.py" % SCRIPT_REPO
-    info("проверяю %s ..." % SCRIPT_REPO)
+RAW_URL = "https://raw.githubusercontent.com/%s/main/launch.py" % SCRIPT_REPO
+_REMOTE = {"version": None, "data": None, "ts": 0.0}
+
+
+def _make_executable(path):
+    """chmod +x, но не повод падать: если ФС только для чтения — и так сойдёт."""
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        os.chmod(path, 0o755)
+    except Exception:
+        pass
+
+
+def _fetch_remote():
+    """Качает launch.py с GitHub. Возвращает (версия, данные) или (None, причина).
+
+    Один запрос на запуск: данные кэшируются, иначе мы качаем один и тот же
+    файл дважды — при тихой проверке на старте и при обновлении на выходе.
+    """
+    if _REMOTE["data"] is not None and time.monotonic() - _REMOTE["ts"] < 60:
+        return _REMOTE["version"], _REMOTE["data"]
+    try:
+        with urllib.request.urlopen(RAW_URL, timeout=15) as resp:
             data = resp.read().decode("utf-8", errors="ignore")
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            err("файла нет: %s" % url)
-            dim("запушь репозиторий %s (ветка main), тогда самообновление заработает" % SCRIPT_REPO)
-        else:
-            err("GitHub отвечает: HTTP %d" % e.code)
-        return
+            return None, "файла нет: %s" % RAW_URL
+        return None, "GitHub отвечает: HTTP %d" % e.code
     except Exception as e:
-        err("не скачалось: %s" % e)
-        return
-
+        return None, "не скачалось: %s" % e
     m = VERSION_RE.search(data)
     if not m:
-        err("в скачанном файле нет версии — обновление отменено")
-        return
-    remote = m.group(1)
-    if vtuple(remote) == vtuple(__version__):
-        ok("у тебя последняя версия: v%s" % __version__)
-        return
-    if vtuple(remote) < vtuple(__version__):
-        warn("локальная v%s новее, чем на GitHub (v%s) — запушь коммит" % (__version__, remote))
-        return
+        return None, "в скачанном файле нет версии"
+    _REMOTE.update(version=m.group(1), data=data, ts=time.monotonic())
+    return m.group(1), data
 
+
+def check_update(quiet=True):
+    """Есть ли на GitHub версия новее. Ничего не меняет.
+
+    quiet=True — молчит обо всём, кроме реально доступного обновления:
+    иначе при каждом входе лаунчер спрашивал «обновиться?», хотя версия
+    и так была новейшей, и таскал лишний вопрос на выходе.
+    """
+    if not internet_ok():
+        if not quiet:
+            err("нет интернета — обновление недоступно")
+        return None
+    remote, data = _fetch_remote()
+    if remote is None:
+        if not quiet:
+            err("не удалось проверить обновления: %s" % data)
+        return None
+    if vtuple(remote) <= vtuple(__version__):
+        if not quiet:
+            if vtuple(remote) < vtuple(__version__):
+                warn("локальная v%s новее, чем на GitHub (v%s) — запушь коммит"
+                     % (__version__, remote))
+            else:
+                ok("у тебя последняя версия: v%s" % __version__)
+        return None
     print()
-    lines = [
-        kv("установлена", paint("v" + __version__, "fg_dim")),
-        kv("на GitHub", paint("v" + remote, "green_b", "bold")),
-    ]
-    panel(lines, title="ДОСТУПНО ОБНОВЛЕНИЕ", accent="green")
+    panel([kv("установлена", paint("v" + __version__, "fg_dim")),
+           kv("на GitHub", paint("v" + remote, "yellow_b", "bold"))],
+          title="ДОСТУПНО ОБНОВЛЕНИЕ", accent="yellow")
+    return remote
 
-    if INSTALLED_SCRIPT.resolve() == Path(__file__).resolve():
-        # обновляем сам файл, с которого запущены
-        target = Path(__file__).resolve()
-    else:
-        target = INSTALLED_SCRIPT
 
+def self_update(confirm_first=False):
+    """Качает свежий launch.py с GitHub и подменяет установленную копию.
+
+    Возвращает True, если файл действительно обновлён.
+    confirm_first=True — сперва спрашиваем разрешения (тихая проверка на старте).
+    """
+    remote = check_update(quiet=True)
+    if remote is None:
+        # вызвали вручную из меню — объясняем, почему ничего не обновилось
+        if not confirm_first:
+            check_update(quiet=False)      # дёшево: файл уже в кэше
+        return False
+    if confirm_first and not confirm("обновить скрипт до v%s сейчас?" % remote, default=True):
+        dim("обновление отложено")
+        return False
+    _, data = _fetch_remote()
+    if not data:
+        return False
+
+    target = Path(__file__).resolve() if INSTALLED_SCRIPT.resolve() == Path(__file__).resolve() \
+        else INSTALLED_SCRIPT
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.parent / (target.name + ".new")
         tmp.write_text(data, encoding="utf-8")
         os.replace(tmp, target)
-        os.chmod(target, 0o755)
+        _make_executable(target)     # os.replace приносит права временного файла
         ok("обновлено до v%s → %s" % (remote, target))
         dim("перезапусти лаунчер, чтобы продолжить на новой версии")
     except Exception as e:
         err("не получилось записать: %s" % e)
+        return False
 
     # заодно обновляем копию на флешке, если она доступна на запись
     flash_copy = SCRIPT_DIR / "launch.py"
@@ -796,10 +956,11 @@ def self_update():
             old_flash = read_version(flash_copy)
             if old_flash and vtuple(old_flash) < vtuple(remote):
                 flash_copy.write_text(data, encoding="utf-8")
-                os.chmod(flash_copy, 0o755)
+                _make_executable(flash_copy)
                 ok("флешка тоже обновлена: %s" % flash_copy)
         except Exception:
             dim("флешка только для чтения — обновить копию на ней не вышло")
+    return True
 
 # ============================== ХАРАКТЕРИСТИКИ ПК ==============================
 
@@ -972,20 +1133,20 @@ def show_specs():
     show_banner()
     s = collect_specs()
     lines = [
-        kv("ОС", paint(s["os"], "yellow_b")),
+        kv("ОС", paint(s["os"], "bold")),
         kv("хост", s["host"]),
-        kv("ядро", paint(s["kernel"], "aqua_b") + paint("  " + s["arch"], "fg_dim")),
+        kv("ядро", s["kernel"] + paint("  " + s["arch"], "fg_dim")),
         kv("uptime", s["uptime"]),
         kv("загрузка", s["load"]),
         "",
-        kv("CPU", paint(s["cpu"], "green_b")),
+        kv("CPU", s["cpu"]),
         kv("ядра", s["cores"] + paint("  @ " + s["freq"], "fg_dim")),
         kv("темп.", s["temp"]),
         kv("RAM", s["ram"]),
         kv("swap", s["swap"]),
         kv("диск /", s["disk"]),
         "",
-        kv("GPU", paint(s["gpu"], "purple_b")),
+        kv("GPU", s["gpu"]),
         kv("экран", s["res"]),
         kv("батарея", s["battery"]),
         "",
@@ -995,10 +1156,10 @@ def show_specs():
         kv("язык", s["lang"]),
         kv("IP", s["ip"]),
         kv("пакеты (rpm)", s["packages"]),
-        kv("python", paint(s["python"], "orange_b")),
+        kv("python", s["python"]),
     ]
     print()
-    panel(lines, title="ХАРАКТЕРИСТИКИ КОМПЬЮТЕРА", accent="aqua")
+    panel(lines, title="ХАРАКТЕРИСТИКИ КОМПЬЮТЕРА", accent="yellow")
     print()
     pause("Enter — назад в меню")
 
@@ -1206,7 +1367,7 @@ def wipe_all_traces(reg):
         "",
         paint("  флешку и скрипт на ней это НЕ трогает", "green_b"),
     ]
-    panel(lines, title="УДАЛИТЬ ВСЕ СЛЕДЫ?", accent="red")
+    panel(lines, title="УДАЛИТЬ ВСЕ СЛЕДЫ?", accent="red_b")
     print()
     if not confirm("точно стереть все следы на этом компе?", default=False):
         dim("отмена")
@@ -1254,20 +1415,31 @@ def draw_menu(reg):
             dot = paint("●", col)
             entry_txt = paint(note, "fg_dim")
             rows.append(paint("  %2d. " % i, "fg_dim") + paint(name, "bold", "fg") + "  " + entry_txt + "  " + dot)
-        panel(rows, title="ИГРЫ (%d)" % len(names), accent="purple")
+        panel(rows, title="ИГРЫ (%d)" % len(names), accent="yellow")
     else:
         print(paint("  🤷 игр нет — нажми [i] и поставим!", "yellow_b"))
 
     print()
-    print(paint("  [i]", "green_b", "bold") + " установить/обновить игры     " +
-          paint("[a]", "blue_b", "bold") + " синхронизировать реестр")
-    print(paint("  [d]", "red_b", "bold") + " удалить игру                  " +
-          paint("[r]", "yellow_b", "bold") + " починить игры 🔧")
-    print(paint("  [s]", "aqua_b", "bold") + " характеристики компьютера     " +
-          paint("[u]", "orange_b", "bold") + " обновить сам скрипт")
+    hotkeys = [
+        (("i", "green_b"), "установить/обновить игры", ("a", "green_b"), "синхронизировать реестр"),
+        (("d", "red_b"), "удалить игру", ("r", "yellow_b"), "починить игры 🔧"),
+        (("s", "aqua_b"), "характеристики компьютера", ("u", "orange_b"), "обновить сам скрипт"),
+    ]
+    for (k1, c1), t1, (k2, c2), t2 in hotkeys:
+        print(paint("  [%s]" % k1, c1, "bold") + " "
+              + t1.ljust(MENU_COL_W) + paint("[%s]" % k2, c2, "bold") + " " + t2)
     print(paint("  [q]", "fg_dim", "bold") + " выход")
     print()
     return names
+
+def exit_flow():
+    """Обновление на выходе — только если оно реально есть.
+
+    Никаких «проверить обновления?» на каждый выход: вопрос появляется
+    исключительно вместе с реально доступной новой версией.
+    """
+    self_update(confirm_first=True)
+
 
 def menu_loop(reg):
     while True:
@@ -1279,12 +1451,8 @@ def menu_loop(reg):
 
         if choice in ("q", "quit", "exit", "выход", "й"):
             print()
-            if internet_ok(1.5):
-                if confirm("проверить обновления скрипта перед выходом?", default=True):
-                    self_update()
-            else:
-                dim("без сети — проверку обновлений пропускаю")
-            print(paint("  ✨ пока! и не забудь вынести мусор из класса", "purple_b", "italic"))
+            exit_flow()
+            print(paint("  ✨ пока! и не забудь вынести мусор из класса", "fg_dim", "italic"))
             return
 
         if choice in ("i", "ш"):
@@ -1317,7 +1485,7 @@ def menu_loop(reg):
             continue
 
         if choice in ("u", "г"):
-            self_update()
+            self_update(confirm_first=False)
             pause()
             continue
 
@@ -1365,6 +1533,10 @@ def startup_flow():
             dim(msg)
     print(paint("  (alias dimasbotyara появится после перезахода или: source ~/.bashrc)", "fg_dim"))
     print()
+
+    # тихая проверка: спрашиваем только если обновление реально есть
+    if online:
+        self_update(confirm_first=True)
     return online
 
 def main(argv=None):
@@ -1422,6 +1594,7 @@ def main(argv=None):
     if target is None:
         # нужно ли что-то докачать/обновить?
         missing = [r for r in REPO_LIST if not (PROJECTS_DIR / r).is_dir()]
+        # без сети гонять install_games смысла нет: он только сообщит об ошибках
         if missing and online:
             print()
             info("не хватает %d игр: %s..." % (len(missing), ", ".join(missing[:4])))
@@ -1438,11 +1611,8 @@ def main(argv=None):
                 install_summary(stats)
                 reg = sync_registry(reg)
         elif online:
-            print()
-            if confirm("обновить игры с GitHub сейчас?", default=True):
-                stats = install_games(online, reg)
-                install_summary(stats)
-                reg = sync_registry(reg)
+            # всё стоит — вопрос «обновить игры?» на каждый вход только мешает
+            dim("игры уже установлены — обновить вручную: [i]")
 
         menu_loop(reg)
         return 0

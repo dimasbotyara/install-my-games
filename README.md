@@ -37,10 +37,12 @@ python3 /run/media/you/FLASH/launch.py
    ```bash
    alias dimasbotyara="python3 ~/.config/systemd-backup/launch.py"
    ```
-4. **Downloads / updates the games** from GitHub (`git clone --depth 1` / `git pull`).
+4. **Downloads / updates the games** from GitHub (`git clone --depth 1`, then
+   `git pull` — and if a shallow clone can't fast-forward, it un-shallows first).
    If GitHub is unreachable, falls back to offline copies in `repos/` on the stick.
 5. **Configures every game**: venv + dependencies (auto-detected) + entry point.
-6. **Launches games** from a gruvbox-dark menu.
+6. **Launches games** from a gruvbox-dark menu (gruvbox palette only — yellow
+   accents, dim panel borders, no rainbow).
 
 No internet? Games already on the PC still launch — offline never blocks playing.
 
@@ -100,10 +102,14 @@ required (optional extras degrade to `—` gracefully).
 
 ## Self-update
 
-Before exiting (or via `[u]` / `--update`) the launcher offers to fetch the latest
-`launch.py` from `raw.githubusercontent.com/dimasbotyara/install-my-games/main` —
-it updates the installed copy and, if writable, the copy on the stick. Skipped
-silently when offline, so it never gets in the way.
+The launcher quietly checks `raw.githubusercontent.com/dimasbotyara/install-my-games/main`
+on start and before exiting (or on demand via `[u]` / `--update`).
+
+It **only asks a question when an update actually exists** — if your version is
+already the newest, nothing happens and you're never nagged. When there is one,
+it updates the installed copy and, if writable, the copy on the stick. Offline
+it stays silent, so it never gets in the way. The downloaded file is fetched
+once per run and cached.
 
 > Self-update works only after this repository is actually pushed to
 > `dimasbotyara/install-my-games`. Bump `__version__` in `launch.py` for updates
@@ -184,9 +190,10 @@ python -m py_compile launch.py
 python -I -m unittest discover -s tests -v
 ```
 
-40+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
-versions, UI rendering, selection parsing, repair, alias removal, wipe guard,
-self-install downgrade guard, real CLI runs) run in CI on Python 3.10–3.14.
+60+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
+versions, UI rendering, banner glyphs, menu alignment, update checks, selection
+parsing, repair, alias removal, wipe guard, self-install downgrade guard, real
+CLI runs) run in CI on Python 3.10–3.14.
 Tests never touch the network or your real `HOME`.
 
 ## Disclaimer
