@@ -212,6 +212,379 @@ class UI(unittest.TestCase):
             launch.NO_COLOR = old
 
 
+class BannerGlyphs(unittest.TestCase):
+    """Баннер должен читаться как BOTYARA, а не DOTYARA."""
+
+    def test_b_is_not_a_d(self):
+        b = launch._BANNER_LETTERS["B"]
+        d = launch._BANNER_LETTERS.get("D") or ["██████╗ ", "██╔══██╗", "██║  ██║",
+                                                "██║  ██║", "██████╔╝", "╚═════╝ "]
+        self.assertNotEqual(b, d)
+
+    def test_b_has_two_bowls(self):
+        """У настоящей B верхняя и нижняя «чаши» одинаковые, посередине перемычка."""
+        rows = [r.strip() for r in launch._BANNER_LETTERS["B"]]
+        self.assertEqual(rows[4], rows[2])        # низ чаши = верх чаши
+        self.assertIn("██╔══██╗", rows[1])
+        self.assertIn("██╔══██╗", rows[3])        # нижняя чаша открывается так же
+
+    def test_banner_colors_are_gruvbox_only(self):
+        """Никакой радуги: только цвета из палитры gruvbox."""
+        for color in launch._BANNER_COLORS:
+            self.assertIn(color, launch.PAL)
+
+    def test_banner_colors_are_calm(self):
+        """Баннер не должен переливаться 7 цветами."""
+        self.assertLessEqual(len(set(launch._BANNER_COLORS)), 3)
+
+
+class MenuAlignment(unittest.TestCase):
+    def _menu_lines(self):
+        old = launch.NO_COLOR
+        launch.NO_COLOR = True
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                launch.draw_menu({})
+            return [launch.ANSI_RE.sub("", l) for l in buf.getvalue().splitlines()]
+        finally:
+            launch.NO_COLOR = old
+
+    def test_second_column_aligned(self):
+        """[a] / [r] / [u] — строго в одной колонке."""
+        cols = []
+        for line in self._menu_lines():
+            for key in ("[a]", "[r]", "[u]"):
+                if key in line:
+                    cols.append(line.index(key))
+        self.assertEqual(len(cols), 3)
+        self.assertEqual(len(set(cols)), 1, "второй столбец разъехался: %r" % cols)
+
+    def test_hotkeys_present(self):
+        text = "\n".join(self._menu_lines())
+        for key in ("[i]", "[a]", "[d]", "[r]", "[s]", "[u]", "[q]"):
+            self.assertIn(key, text)
+
+
+class PanelStyle(unittest.TestCase):
+    def _panel(self, **kwargs):
+        old = launch.NO_COLOR
+        launch.NO_COLOR = False
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                launch.panel(["x"], **kwargs)
+            return buf.getvalue()
+        finally:
+            launch.NO_COLOR = old
+
+    def test_border_is_dim_gray(self):
+        """Рамка — fg_dim, а не цвет акцента."""
+        out = self._panel(title="Т", accent="red")
+        dim_code = launch._fg_code("fg_dim")
+        self.assertIn(dim_code + "╭─", out)
+        self.assertIn(dim_code + "╰", out)
+
+    def test_title_keeps_accent(self):
+        out = self._panel(title="Т", accent="red_b")
+        # заголовок красится «цвет + bold», поэтому проверяем префикс кода
+        self.assertIn(launch._fg_code("red_b")[:-1], out)
+
+    def test_all_accents_are_palette_colors(self):
+        for accent in ("yellow", "red_b", "green", "aqua", "purple", "blue"):
+            self.assertIn(accent, launch.PAL)
+
+
+class UpdateCheck(unittest.TestCase):
+    """Самообновление не должно спрашивать, когда всё и так свежее."""
+
+    def setUp(self):
+        self._saved = dict(launch._REMOTE)
+        launch._REMOTE.update(version=None, data=None, ts=0.0)
+        self._net = unittest.mock.patch.object(launch, "internet_ok", return_value=True)
+        self._net.start()
+
+    def tearDown(self):
+        self._net.stop()
+        launch._REMOTE.update(self._saved)
+
+    def _with_remote(self, version):
+        return unittest.mock.patch.object(
+            launch, "_fetch_remote", return_value=(version, 'launch.py __version__ = "%s"' % version))
+
+    def _quiet(self, fn, *a, **kw):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = fn(*a, **kw)
+        return result, buf.getvalue()
+
+    def test_same_version_is_silent(self):
+        with self._with_remote(launch.__version__):
+            remote, out = self._quiet(launch.check_update, quiet=True)
+        self.assertIsNone(remote)
+        self.assertEqual(out.strip(), "", "при последней версии лаунчер должен молчать")
+
+    def test_older_remote_is_silent(self):
+        with self._with_remote("0.0.1"):
+            remote, out = self._quiet(launch.check_update, quiet=True)
+        self.assertIsNone(remote)
+        self.assertEqual(out.strip(), "")
+
+    def test_newer_remote_is_reported(self):
+        with self._with_remote("99.0.0"):
+            remote, out = self._quiet(launch.check_update, quiet=True)
+        self.assertEqual(remote, "99.0.0")
+        self.assertIn("ОБНОВЛЕНИЕ", out)
+
+    def test_loud_mode_explains_when_up_to_date(self):
+        with self._with_remote(launch.__version__):
+            _, out = self._quiet(launch.check_update, quiet=False)
+        self.assertIn("последняя версия", out)
+
+    def test_offline_quiet_is_silent(self):
+        with unittest.mock.patch.object(launch, "internet_ok", return_value=False):
+            remote, out = self._quiet(launch.check_update, quiet=True)
+        self.assertIsNone(remote)
+        self.assertEqual(out.strip(), "")
+
+    def test_offline_loud_explains(self):
+        with unittest.mock.patch.object(launch, "internet_ok", return_value=False):
+            _, out = self._quiet(launch.check_update, quiet=False)
+        self.assertIn("нет интернета", out)
+
+    def test_self_update_asks_nothing_when_current(self):
+        with self._with_remote(launch.__version__), \
+             unittest.mock.patch.object(launch, "confirm") as conf:
+            _, out = self._quiet(launch.self_update, confirm_first=True)
+        conf.assert_not_called()
+        self.assertEqual(out.strip(), "")
+
+    def test_self_update_skips_write_on_cancel(self):
+        with self._with_remote("99.0.0"), \
+             unittest.mock.patch.object(launch, "confirm", return_value=False), \
+             unittest.mock.patch.object(launch, "INSTALLED_SCRIPT",
+                                        Path(tempfile.mkdtemp()) / "launch.py"):
+            changed, _ = self._quiet(launch.self_update, confirm_first=True)
+        self.assertFalse(changed)
+
+    def test_updated_file_stays_executable(self):
+        """os.replace приносит права временного файла — +x теряться не должен."""
+        import os
+        d = Path(tempfile.mkdtemp())
+        target = d / "launch.py"
+        target.write_text('__version__ = "1.0.0"\n', encoding="utf-8")
+        with unittest.mock.patch.object(launch, "INSTALLED_SCRIPT", target), \
+             unittest.mock.patch.object(launch, "SCRIPT_DIR", d), \
+             unittest.mock.patch.object(launch, "check_update", return_value="9.9.9"), \
+             unittest.mock.patch.object(launch, "_fetch_remote",
+                                        return_value=("9.9.9", '__version__ = "9.9.9"\n')):
+            changed, _ = self._quiet(launch.self_update)
+        self.assertTrue(changed)
+        self.assertEqual(launch.read_version(target), "9.9.9")
+        self.assertTrue(os.access(target, os.X_OK), "файл должен остаться исполняемым")
+
+    def test_remote_fetch_is_cached(self):
+        launch._REMOTE.update(version=None, data=None, ts=0.0)
+        calls = []
+
+        def fake_urlopen(*a, **kw):
+            calls.append(1)
+            import io as _io
+            return unittest.mock.MagicMock(
+                __enter__=lambda s: _io.BytesIO(b'__version__ = "9.9.9"\n'),
+                __exit__=lambda *a: False)
+
+        with unittest.mock.patch.object(launch.urllib.request, "urlopen", fake_urlopen):
+            launch._fetch_remote()
+            launch._fetch_remote()
+        self.assertEqual(len(calls), 1, "файл с GitHub должен качаться один раз за запуск")
+
+
+class InternetCheck(unittest.TestCase):
+    def setUp(self):
+        launch._NET_CACHE.update(ok=None, ts=0.0)
+
+    def tearDown(self):
+        launch._NET_CACHE.update(ok=None, ts=0.0)
+
+    def test_result_is_cached(self):
+        calls = []
+
+        def fake_conn(addr, timeout=0):
+            calls.append(addr)
+            return unittest.mock.MagicMock()
+
+        with unittest.mock.patch.object(launch.socket, "create_connection", fake_conn), \
+             unittest.mock.patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(launch.internet_ok())
+            self.assertTrue(launch.internet_ok())
+            self.assertTrue(launch.internet_ok())
+        self.assertEqual(len(calls), 1, "повторные проверки должны браться из кэша")
+
+    def test_offline_is_cached_too(self):
+        calls = []
+
+        def dead_conn(addr, timeout=0):
+            calls.append(addr)
+            raise OSError("сети нет")
+
+        with unittest.mock.patch.object(launch.socket, "create_connection", dead_conn), \
+             unittest.mock.patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(launch.internet_ok())
+            self.assertFalse(launch.internet_ok())
+        self.assertEqual(len(calls), 3, "три хоста один раз, потом кэш")
+
+    def test_force_bypasses_cache(self):
+        calls = []
+
+        def dead_conn(addr, timeout=0):
+            calls.append(addr)
+            raise OSError("сети нет")
+
+        with unittest.mock.patch.object(launch.socket, "create_connection", dead_conn), \
+             unittest.mock.patch.dict("os.environ", {}, clear=True):
+            launch.internet_ok()
+            launch.internet_ok(force=True)
+        self.assertEqual(len(calls), 6)
+
+    def test_proxy_env_is_used(self):
+        """При школьном прокси прямой TCP ничего не доказывает — идём через него."""
+        env = {"HTTPS_PROXY": "http://proxy.school:3128"}
+        with unittest.mock.patch.dict("os.environ", env, clear=True), \
+             unittest.mock.patch.object(launch, "_origin_reachable", return_value=True) as reach, \
+             unittest.mock.patch.object(launch.socket, "create_connection") as direct:
+            self.assertTrue(launch.internet_ok())
+        reach.assert_called_once_with("http://proxy.school:3128")
+        direct.assert_not_called()
+
+    def test_proxy_without_scheme(self):
+        with unittest.mock.patch.dict("os.environ", {"HTTPS_PROXY": "proxy.school:3128"}, clear=True):
+            self.assertEqual(launch._proxy_url(), "http://proxy.school:3128")
+
+    def test_no_proxy_env(self):
+        with unittest.mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(launch._proxy_url(), "")
+
+
+class ImportScanLimit(unittest.TestCase):
+    def test_huge_venv_does_not_eat_the_budget(self):
+        """1200 файлов в .venv не должны мешать найти pygame в run.py."""
+        with tempfile.TemporaryDirectory() as td:
+            g = Path(td) / "game"
+            lib = g / ".venv" / "lib"
+            lib.mkdir(parents=True)
+            for i in range(1200):
+                (lib / ("m%04d.py" % i)).write_text("import requests\n", encoding="utf-8")
+            (g / "run.py").write_text("import pygame\n", encoding="utf-8")
+            self.assertEqual(launch.detect_imports(g), ["pygame"])
+
+    def test_git_dir_is_skipped(self):
+        with tempfile.TemporaryDirectory() as td:
+            g = Path(td) / "game"
+            (g / ".git" / "hooks").mkdir(parents=True)
+            (g / ".git" / "hooks" / "x.py").write_text("import requests\n", encoding="utf-8")
+            (g / "run.py").write_text("import pygame\n", encoding="utf-8")
+            self.assertEqual(launch.detect_imports(g), ["pygame"])
+
+
+class GitPull(unittest.TestCase):
+    """Обновление игр на реальных локальных репозиториях (без сети)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.root = Path(self.tmp)
+        self.origin = self.root / "origin.git"
+        self._git(self.root, "init", "-q", "--bare", str(self.origin))
+        seed = self.root / "seed"
+        self._git(self.root, "clone", "-q", str(self.origin), str(seed))
+        self._git(seed, "config", "user.email", "t@t")
+        self._git(seed, "config", "user.name", "t")
+        (seed / "f").write_text("a", encoding="utf-8")
+        self._git(seed, "add", "f")
+        self._git(seed, "commit", "-qm", "c1")
+        self._git(seed, "push", "-q", "origin", "HEAD:master")
+        self.seed = seed
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _git(self, cwd, *args):
+        return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+
+    def _new_commit(self, marker):
+        (self.seed / "f").write_text((self.seed / "f").read_text() + marker, encoding="utf-8")
+        self._git(self.seed, "commit", "-qam", marker)
+        self._git(self.seed, "push", "-q", "origin", "HEAD:master")
+
+    def _clone(self, name, *extra):
+        dest = self.root / name
+        self._git(self.root, "clone", "-q", *extra, "file://" + str(self.origin), str(dest))
+        return dest
+
+    def test_shallow_clone_gets_new_commits(self):
+        """Главный баг: клон --depth 1 не мог обновиться на новый коммит."""
+        game = self._clone("game", "--depth", "1")
+        self.assertTrue(launch._is_shallow(game))
+        self._new_commit("c2")
+        good, msg, changed = launch.git_pull(game)
+        self.assertTrue(good, msg)
+        self.assertTrue(changed)
+        self.assertEqual(launch._head_sha(game),
+                         self._git(self.origin, "rev-parse", "master").stdout.strip())
+
+    def test_up_to_date_reports_no_changes(self):
+        game = self._clone("game", "--depth", "1")
+        good, msg, changed = launch.git_pull(game)
+        self.assertTrue(good, msg)
+        self.assertFalse(changed, "нечего обновлять — значит и врать «обновлён» нельзя")
+        self.assertEqual(msg, "уже новейшая")
+
+    def test_full_clone_still_works(self):
+        game = self._clone("game_full")
+        self._new_commit("c3")
+        good, _, changed = launch.git_pull(game)
+        self.assertTrue(good)
+        self.assertTrue(changed)
+
+    def test_not_a_repository(self):
+        good, msg, changed = launch.git_pull(self.root)
+        self.assertFalse(good)
+        self.assertFalse(changed)
+
+
+class InstallSummary(unittest.TestCase):
+    def _summary(self, stats):
+        old = launch.NO_COLOR
+        launch.NO_COLOR = True
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                launch.install_summary(stats)
+            return buf.getvalue()
+        finally:
+            launch.NO_COLOR = old
+
+    def test_counts_fresh_games(self):
+        out = self._summary({"new": [], "updated": [], "fresh": ["a", "b"],
+                             "ok": [], "failed": []})
+        self.assertIn("уже новейшие", out)
+        self.assertIn("2", out)
+
+    def test_all_fresh_message(self):
+        out = self._summary({"new": [], "updated": [], "fresh": ["a"], "ok": [], "failed": []})
+        self.assertIn("обновлять нечего", out)
+
+    def test_nothing_fresh_no_silly_message(self):
+        out = self._summary({"new": ["x"], "updated": [], "fresh": [], "ok": [], "failed": []})
+        self.assertNotIn("обновлять нечего", out)
+
+    def test_stats_without_fresh_key_still_work(self):
+        """Совместимость: старый формат stats без ключа fresh."""
+        out = self._summary({"new": [], "updated": [], "ok": [], "failed": []})
+        self.assertIn("ИТОГИ УСТАНОВКИ", out)
+
+
 class Versioning(unittest.TestCase):
     def test_vtuple(self):
         self.assertEqual(launch.vtuple("2.0.0"), (2, 0, 0))
