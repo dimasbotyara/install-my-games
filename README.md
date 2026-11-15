@@ -46,6 +46,9 @@ python3 /run/media/you/FLASH/launch.py
 
 No internet? Games already on the PC still launch — offline never blocks playing.
 
+The big ASCII banner is drawn in the menu only. The startup screen is a compact
+two-line header, so the first thing you see doesn't scroll your terminal away.
+
 ## Password gate 🔒
 
 Opening the launcher (and anything that does something: installing, launching,
@@ -71,8 +74,12 @@ stays visible.
 
 A **web app** (Flask, Django, FastAPI, Bottle, Tornado, Sanic, Quart) is handled
 the other way round: it runs **in the launcher's terminal**, you see its log and
-the address it listens on, and `Ctrl+C` stops the server and returns you to the
-menu — no password prompt again, the session is already unlocked.
+the address it listens on.
+
+- the app exits (you closed it / it crashed) → the launcher closes too and the
+  screen is left clean, no server log hanging around in your terminal;
+- `Ctrl+C` → the server is stopped and you're back in the menu, password not
+  asked again (the session stays unlocked).
 
 The detection looks at the game's imports and asks one question: *is there a
 window?* A game that imports `pygame`/`tkinter`/Qt is a normal windowed game and
@@ -119,14 +126,16 @@ required (optional extras degrade to `—` gracefully).
 
 ## Self-update
 
-The launcher quietly checks `raw.githubusercontent.com/dimasbotyara/install-my-games/main`
-on start and before exiting (or on demand via `[u]` / `--update`).
+Updating is **manual**: `[u]` in the menu, or `--update`. That's it.
 
-It **only asks a question when an update actually exists** — if your version is
-already the newest, nothing happens and you're never nagged. When there is one,
-it updates the installed copy and, if writable, the copy on the stick. Offline
-it stays silent, so it never gets in the way. The downloaded file is fetched
-once per run and cached.
+Startup and exit never touch GitHub. It used to check for a new `launch.py` on
+every start and before every exit — meaning a download from GitHub right when you
+just want to open a game, which on a slow phone connection (Termux) could hang
+for fifteen seconds. Now nothing is fetched until you ask for it, and exits are
+instant.
+
+`[u]` asks for confirmation only if an update actually exists; if you're on the
+newest version it just says so and returns to the menu.
 
 > Self-update works only after this repository is actually pushed to
 > `dimasbotyara/install-my-games`. Bump `__version__` in `launch.py` for updates
@@ -166,6 +175,25 @@ venv + dependencies from scratch — the cure for a pip run that died halfway.
 games, the registry, the installed script copy and the `.bashrc`/`.zshrc` alias.
 Double-protected: a confirmation plus typing `УДАЛИТЬ` by hand. The USB stick
 (and the script on it) is never touched — that's your installer, not a trace.
+
+## Keeping the shell history clean
+
+Launching the launcher shouldn't show up in your command history. Along with the
+alias, the installer writes this into `~/.bashrc`:
+
+```bash
+HISTIGNORE="*launch.py*:*systemd-backup*:*botyara*:*dimasbotyara*:*BOTYARA*"
+HISTCONTROL="ignoreboth"
+```
+
+`HISTIGNORE` makes bash skip those commands entirely, `ignoreboth` drops
+duplicates and lines starting with a space. `zsh` uses different variable names
+for the same idea, so `.zshrc` gets the alias only — no dead bash variables in
+there.
+
+Both lines are removed again by **удалить все следы**. If you already had the
+alias from an older version, the installer just adds the missing history lines,
+without duplicating the alias.
 
 ## Menu keys
 
@@ -207,11 +235,11 @@ python -m py_compile launch.py
 python -I -m unittest discover -s tests -v
 ```
 
-100+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
+115+ stdlib-only smoke tests (entry detection, dependency scanning, registry,
 versions, UI rendering, banner glyphs, menu alignment, update checks, web-app
-detection, terminal launching, password session, selection parsing, repair, alias
-removal, wipe guard, self-install downgrade guard, real CLI runs) run in CI on
-Python 3.10–3.14.
+detection, terminal launching, password session, quiet startup, shell history,
+selection parsing, repair, alias removal, wipe guard, self-install downgrade
+guard, real CLI runs) run in CI on Python 3.10–3.14.
 Tests never touch the network or your real `HOME`.
 
 ## Disclaimer

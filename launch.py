@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -67,6 +67,17 @@ ALIAS_NAME = "dimasbotyara"
 ALIAS_LINE = 'alias %s="python3 ~/.config/systemd-backup/launch.py"' % ALIAS_NAME
 ALIAS_MARKER = "# BOTYARA GAMES launcher"
 
+# Чтобы запуск лаунчера не оставлял следов в истории команд: строки с этими
+# словами bash не запоминает вовсе. Кладём в rc-файл рядом с alias.
+HIST_MARKER = "# BOTYARA GAMES: не засорять историю команд"
+HIST_LINES = [
+    'HISTIGNORE="%s"' % ":".join([
+        "*launch.py*", "*systemd-backup*", "*botyara*", "*dimasbotyara*",
+        "*BOTYARA*",
+    ]),
+    'HISTCONTROL="ignoreboth"',
+]
+
 # --- пароль лаунчера: в коде только хэш с солью, сам пароль не хранится ---
 AUTH_SALT = "botyara-games::hidden-launcher::v2"
 AUTH_HASH = "674485607c066f34c1be917790bce9d4b120e87c0e2c5c9954c1da82982d4ab6"
@@ -74,6 +85,18 @@ AUTH_ATTEMPTS = 3
 
 # иерархия точек входа: run.py > app.py > main.py
 ENTRY_PRIORITY = ["run.py", "app.py", "main.py"]
+
+def venv_python(project):
+    """Путь до python внутри .venv игры.
+
+    Windows — Scripts/python.exe, всё остальное — bin/python. Отдельная
+    функция, чтобы это знание жило в одном месте.
+    """
+    venv = Path(project) / ".venv"
+    if os.name == "nt":
+        exe = venv / "Scripts" / "python.exe"
+        return exe if exe.exists() else venv / "Scripts" / "python"
+    return venv / "bin" / "python"
 
 # import name -> pip name (остальные ставятся как есть)
 PIP_NAME_MAP = {
@@ -168,6 +191,25 @@ def clear():
         print("\033[H\033[2J\033[3J", end="")
     else:
         print()
+
+def clear_screen_for_exit():
+    """Очистка терминала при выходе — без сюрпризов для разных терминалов.
+
+    Последовательность стирания скроллбэка знают не все эмуляторы: где не
+    знают, остаётся мусор. Поэтому идём через `tput` (он сам подберёт
+    корректную последовательность для TERM), а если tput нет — обычная
+    очистка экрана ANSI-кодом.
+    """
+    if not IS_TTY:
+        return
+    try:
+        subprocess.run(["tput", "clear"], check=False, timeout=2,
+                       stdout=sys.stdout, stderr=subprocess.DEVNULL)
+        return
+    except Exception:
+        pass
+    print("\033[H\033[2J", end="", flush=True)
+
 
 def hr(char="─", color="fg_dim"):
     print(paint(char * min(term_w(), 64), color))
@@ -479,7 +521,7 @@ def sync_registry(reg=None, quiet=False):
                 reg[d.name] = {
                     "path": str(d),
                     "entry": detect_entry(d),
-                    "python": str(d / ".venv" / "bin" / "python"),
+                    "python": str(venv_python(d)),
                 }
                 changed = True
                 if not quiet:
@@ -493,7 +535,7 @@ def sync_registry(reg=None, quiet=False):
             if not quiet:
                 warn("реестр: %s исчезла — убираю" % name)
             continue
-        venv_py = p / ".venv" / "bin" / "python"
+        venv_py = venv_python(p)
         want_py = str(venv_py) if venv_py.exists() else sys.executable
         if item.get("python") != want_py:
             item["python"] = want_py
@@ -512,7 +554,7 @@ def game_status(info):
         return "orange", "не настроено"
     if not (path / entry).is_file():
         return "red", "%s пропал" % entry
-    if (path / ".venv" / "bin" / "python").exists():
+    if venv_python(path).exists():
         return "green", entry
     return "yellow", entry + " (без venv)"
 
@@ -541,7 +583,7 @@ def parse_selection(raw, count):
 def ensure_venv(project):
     """Создаёт .venv. Возвращает (python-путь|None, сообщение)."""
     venv = project / ".venv"
-    py = venv / "bin" / "python"
+    py = venv_python(project)
     if py.exists():
         return py, "уже есть"
     try:
@@ -592,7 +634,7 @@ def git_clone(url, dest):
     except Exception as e:
         return False, str(e)
 
-def _git(dest, *args, timeout=300):
+def _git(dest, *args, timeout=90):
     """Запускает git в папке игры. Возвращает CompletedProcess или None."""
     try:
         return subprocess.run(["git", "-C", str(dest), *args],
@@ -712,6 +754,7 @@ def install_games(online, reg, interactive=True):
     flash = find_flash_repos()
     # updated — реально обновлённые; fresh — уже были новейшими (не трогали)
     stats = {"new": [], "updated": [], "fresh": [], "ok": [], "failed": []}
+    net_dead = False        # сеть отвалилась — дальше не мучаем git
 
     if flash:
         info("на флешке найдены оффлайн-копии: %s" % ", ".join(sorted(flash)))
@@ -720,7 +763,7 @@ def install_games(online, reg, interactive=True):
         dest = PROJECTS_DIR / repo
         print()
         if dest.is_dir() and (dest / ".git").is_dir():
-            if online:
+            if online and not net_dead:
                 good, msg, changed = git_pull(dest)
                 if good and changed:
                     ok("%s: %s" % (repo, msg))
@@ -731,6 +774,12 @@ def install_games(online, reg, interactive=True):
                 else:
                     err("%s: не обновился (%s)" % (repo, msg))
                     stats["failed"].append(repo)
+                    if msg == "нет сети или ошибка git":
+                        # сеть легла: не тратим по минуте на каждую из 12 игр
+                        net_dead = True
+                        warn("сеть недоступна — остальные обновления пропускаю")
+            elif online:
+                dim("%s: не трогаю — сеть недоступна" % repo)
             else:
                 dim("%s: есть, но без сети не обновить" % repo)
         elif dest.is_dir():
@@ -789,8 +838,27 @@ def install_summary(stats):
 
 # ============================== ALIAS / САМОУСТАНОВКА ==============================
 
+def alias_block():
+    """Тот самый блок, который дописывается в rc-файл."""
+    return "\n".join([ALIAS_MARKER, ALIAS_LINE, HIST_MARKER, *HIST_LINES])
+
+
+def _wants_hist(rc):
+    """Нужны ли строки истории: HISTIGNORE/HISTCONTROL понимает только bash.
+
+    В zsh то же самое называется HIST_IGNORE_ALL_DUPS и прочим, поэтому
+    туда чужие переменные не пишем — иначе они молча ничего не делают.
+    """
+    return Path(rc).name == ".bashrc"
+
+
 def install_alias():
-    """Добавляет alias в ~/.bashrc (и ~/.zshrc, если есть). Возвращает список."""
+    """Дописывает alias (и настройки истории) в ~/.bashrc и ~/.zshrc.
+
+    Возвращает [(rc, что сделали)]. Повторно не дублирует: если alias уже
+    есть, а настроек истории нет (обновились со старой версии) — допишет
+    только их.
+    """
     touched = []
     rcs = [Path.home() / ".bashrc"]
     zshrc = Path.home() / ".zshrc"
@@ -801,15 +869,22 @@ def install_alias():
             text = rc.read_text(encoding="utf-8", errors="ignore") if rc.exists() else ""
         except Exception:
             continue
-        if ("alias %s" % ALIAS_NAME) in text:
+        have_alias = ("alias %s" % ALIAS_NAME) in text
+        have_hist = HIST_MARKER in text
+        if have_alias and (have_hist or not _wants_hist(rc)):
             touched.append((rc, "уже есть"))
             continue
+        lines = []
+        if not have_alias:
+            lines += [ALIAS_MARKER, ALIAS_LINE]
+        if _wants_hist(rc) and not have_hist:
+            lines += [HIST_MARKER, *HIST_LINES]
         try:
             with rc.open("a", encoding="utf-8") as f:
                 if text and not text.endswith("\n"):
                     f.write("\n")
-                f.write("\n%s\n%s\n" % (ALIAS_MARKER, ALIAS_LINE))
-            touched.append((rc, "добавлен"))
+                f.write("\n" + "\n".join(lines) + "\n")
+            touched.append((rc, "добавлен" if not have_alias else "история добавлена"))
         except Exception as e:
             touched.append((rc, "не вышло: %s" % e))
     return touched
@@ -827,6 +902,8 @@ def uninstall_alias():
             continue
         kept = [l for l in lines
                 if l.strip() != ALIAS_MARKER
+                and l.strip() != HIST_MARKER
+                and l.strip() not in HIST_LINES
                 and not l.strip().startswith("alias %s=" % ALIAS_NAME)]
         if len(kept) == len(lines):
             touched.append((rc, "alias не найден"))
@@ -1258,8 +1335,8 @@ def _run_in_terminal(name, py, path, entry, framework):
     """
     clear()
     print(paint("  🌐 %s — %s" % (name, framework), "yellow_b", "bold"))
-    print(paint("  работает в этом терминале: здесь его лог и адрес", "fg_dim"))
-    print(paint("  Ctrl+C — остановить и вернуться в меню лаунчера", "fg_dim"))
+    print(paint("  лог и адрес — здесь же. выход из приложения закроет лаунчер", "fg_dim"))
+    print(paint("  Ctrl+C — остановить и вернуться в меню", "fg_dim"))
     print()
 
     try:
@@ -1269,6 +1346,7 @@ def _run_in_terminal(name, py, path, entry, framework):
         pause()
         return False
 
+    stopped_by_user = False
     try:
         code = proc.wait()
     except KeyboardInterrupt:
@@ -1276,7 +1354,7 @@ def _run_in_terminal(name, py, path, entry, framework):
         print()
         info("останавливаю %s..." % name)
         _stop_process(proc)
-        print(paint("  ✔ %s остановлена" % name, "green_b"))
+        ok("%s остановлена — возвращаемся в меню" % name)
         time.sleep(0.6)
         return False        # назад в меню, пароль спрашивать уже не будем
 
@@ -1285,8 +1363,20 @@ def _run_in_terminal(name, py, path, entry, framework):
         ok("%s завершилась нормально" % name)
     else:
         err("%s завершилась с кодом %s" % (name, code))
-    pause("Enter — вернуться в меню")
-    return False
+    # Ctrl+C, обработанный самим приложением, тоже приходит сюда
+    try:
+        pause("Enter — вернуться в меню")
+    except KeyboardInterrupt:
+        stopped_by_user = True
+    if stopped_by_user:
+        return False
+    # Приложение отработало и закрылось — лаунчер тоже закрывается и чистит
+    # экран: оставлять после себя лог сервера незачем.
+    time.sleep(0.8)
+    print(paint("  ✨ пока!", "fg_dim", "italic"))
+    time.sleep(1.0)
+    clear_screen_for_exit()
+    return True
 
 
 def launch_detached(name, game, reg):
@@ -1567,12 +1657,12 @@ def draw_menu(reg):
     return names
 
 def exit_flow():
-    """Обновление на выходе — только если оно реально есть.
+    """Выход без единого сетевого запроса.
 
-    Никаких «проверить обновления?» на каждый выход: вопрос появляется
-    исключительно вместе с реально доступной новой версией.
+    Раньше здесь проверялось обновление скрипта — то есть на каждый выход
+    лаунчер мог висеть до 15 секунд на скачивании launch.py с GitHub.
+    Обновления теперь только по [u] в меню.
     """
-    self_update(confirm_first=True)
 
 
 def menu_loop(reg):
@@ -1588,7 +1678,7 @@ def menu_loop(reg):
             exit_flow()
             print(paint("  ✨ пока!", "fg_dim", "italic"))
             time.sleep(1.0)     # даём прочитать, и только потом убираем экран
-            clear()
+            clear_screen_for_exit()
             return
 
         if choice in ("i", "ш"):
@@ -1646,8 +1736,10 @@ def menu_loop(reg):
 # ============================== ЗАПУСК ==============================
 
 def startup_flow():
-    """Баннер, сеть, самоустановка, alias, вопрос про установку игр."""
-    show_banner()
+    """Сеть, самоустановка, alias. Без ASCII-арта — он только в меню."""
+    print(paint("  🎮 BOTYARA GAMES", "yellow_b", "bold")
+          + paint("  ·  v%s" % __version__, "fg_dim"))
+    hr()
 
     online = internet_ok()
     if online:
@@ -1659,20 +1751,23 @@ def startup_flow():
     print()
 
     self_install()
+    added = False
     for rc, note in install_alias():
         msg = "%s: %s" % (rc.name, note)
         if note == "добавлен":
             ok(msg)
+            added = True
         elif "не вышло" in note:
             err(msg)
         else:
             dim(msg)
-    print(paint("  (alias dimasbotyara появится после перезахода или: source ~/.bashrc)", "fg_dim"))
+    if added:
+        print(paint("  (alias dimasbotyara появится после перезахода или: source ~/.bashrc)",
+                    "fg_dim"))
     print()
-
-    # тихая проверка: спрашиваем только если обновление реально есть
-    if online:
-        self_update(confirm_first=True)
+    # проверку обновлений на старте не делаем: скачивание launch.py с GitHub
+    # занимает секунды (а на мобильной сети — до 15), и это заметно в каждом
+    # запуске. Для этого есть пункт [u] в меню.
     return online
 
 def main(argv=None):

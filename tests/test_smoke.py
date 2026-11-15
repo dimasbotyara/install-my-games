@@ -650,14 +650,30 @@ class TerminalLaunch(unittest.TestCase):
             proc.wait.return_value = 0
             with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
                  unittest.mock.patch.object(launch, "pause"), \
-                 unittest.mock.patch.object(launch, "clear"), \
+                 unittest.mock.patch.object(launch, "clear_screen_for_exit") as clear_out, \
+                 unittest.mock.patch.object(launch.time, "sleep"), \
                  redirect_stdout(io.StringIO()) as buf:
                 result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
-            self.assertFalse(result, "после веб-игры лаунчер должен остаться живым")
+            # приложение отработало и закрылось -> лаунчер тоже закрывается,
+            # а экран после себя оставлять чистым
+            self.assertTrue(result, "выход из веб-приложения должен закрывать лаунчер")
+            clear_out.assert_called_once()
             kwargs = popen.call_args.kwargs
             self.assertNotIn("start_new_session", kwargs,
                              "веб-приложение нельзя откреплять от терминала")
             self.assertIn("Flask", buf.getvalue())
+
+    def test_ctrl_c_returns_to_menu_not_exit(self):
+        """Ctrl+C — это «остановить сервер», а не «выйти из лаунчера»."""
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
+            proc = unittest.mock.MagicMock()
+            proc.wait.side_effect = [KeyboardInterrupt, 0]
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc), \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 redirect_stdout(io.StringIO()):
+                result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
+            self.assertFalse(result, "после Ctrl+C лаунчер должен жить и вернуть в меню")
 
     def test_ctrl_c_stops_server_and_keeps_launcher(self):
         with tempfile.TemporaryDirectory() as td:
@@ -735,6 +751,130 @@ class SessionAndFarewell(unittest.TestCase):
             self.assertGreater(gp.getpass.call_count, 1)
         finally:
             launch._AUTH_STATE.update(old)
+
+
+class QuietStartup(unittest.TestCase):
+    """Медленный старт и лишние вопросы на выходе."""
+
+    def _capture(self, fn, *a, **kw):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = fn(*a, **kw)
+        return result, buf.getvalue()
+
+    def test_startup_has_no_ascii_art(self):
+        launch.NO_COLOR = True
+        with unittest.mock.patch.object(launch, "internet_ok", return_value=True), \
+             unittest.mock.patch.object(launch, "self_install"), \
+             unittest.mock.patch.object(launch, "install_alias", return_value=[]):
+            _, out = self._capture(launch.startup_flow)
+        self.assertNotIn("██", out, "ASCII-арт должен быть только в главном меню")
+        self.assertIn("BOTYARA GAMES", out)
+
+    def test_startup_makes_no_update_check(self):
+        """Иначе каждый запуск ждёт скачивания launch.py с GitHub."""
+        with unittest.mock.patch.object(launch, "internet_ok", return_value=True), \
+             unittest.mock.patch.object(launch, "self_install"), \
+             unittest.mock.patch.object(launch, "install_alias", return_value=[]), \
+             unittest.mock.patch.object(launch, "check_update") as check, \
+             unittest.mock.patch.object(launch, "self_update") as upd:
+            self._capture(launch.startup_flow)
+        check.assert_not_called()
+        upd.assert_not_called()
+
+    def test_exit_makes_no_network_calls(self):
+        """Выход не должен ходить в сеть вообще."""
+        with unittest.mock.patch.object(launch, "internet_ok") as net, \
+             unittest.mock.patch.object(launch, "self_update") as upd, \
+             unittest.mock.patch.object(launch, "check_update") as check:
+            self._capture(launch.exit_flow)
+        net.assert_not_called()
+        upd.assert_not_called()
+        check.assert_not_called()
+
+    def test_alias_hint_only_when_added(self):
+        launch.NO_COLOR = True
+        with unittest.mock.patch.object(launch, "internet_ok", return_value=True), \
+             unittest.mock.patch.object(launch, "self_install"), \
+             unittest.mock.patch.object(launch, "install_alias", return_value=[]):
+            _, out = self._capture(launch.startup_flow)
+        self.assertNotIn("source ~/.bashrc", out,
+                         "если alias уже был, подсказка про source не нужна")
+
+
+class ShellHistory(unittest.TestCase):
+    """История команд не должна засоряться запусками лаунчера."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.home = Path(self.tmp)
+        self._patch = unittest.mock.patch.object(Path, "home", return_value=self.home)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _bashrc(self):
+        return (self.home / ".bashrc").read_text(encoding="utf-8")
+
+    def test_hist_lines_written_to_bashrc(self):
+        launch.install_alias()
+        content = self._bashrc()
+        self.assertIn(launch.HIST_MARKER, content)
+        for line in launch.HIST_LINES:
+            self.assertIn(line, content)
+
+    def test_histignore_covers_launcher(self):
+        self.assertIn("*launch.py*", launch.HIST_LINES[0])
+        self.assertIn("*systemd-backup*", launch.HIST_LINES[0])
+        self.assertIn("*botyara*", launch.HIST_LINES[0])
+        self.assertIn("ignoreboth", launch.HIST_LINES[1])
+
+    def test_not_duplicated_on_second_run(self):
+        launch.install_alias()
+        launch.install_alias()
+        content = self._bashrc()
+        self.assertEqual(content.count("HISTCONTROL"), 1)
+        self.assertEqual(content.count(launch.HIST_MARKER), 1)
+
+    def test_upgrades_old_alias_only_install(self):
+        """Старая версия добавляла только alias — дописываем историю, без дублей."""
+        (self.home / ".bashrc").write_text(
+            "%s\n%s\n" % (launch.ALIAS_MARKER, launch.ALIAS_LINE), encoding="utf-8")
+        touched = launch.install_alias()
+        self.assertEqual(touched[0][1], "история добавлена")
+        content = self._bashrc()
+        self.assertEqual(content.count("alias dimasbotyara"), 1)
+        self.assertIn(launch.HIST_MARKER, content)
+
+    def test_zshrc_gets_no_bash_variables(self):
+        """HISTIGNORE/HISTCONTROL в zsh не работают — туда их не пишем."""
+        (self.home / ".zshrc").write_text("# мой zshrc\n", encoding="utf-8")
+        launch.install_alias()
+        zsh = (self.home / ".zshrc").read_text(encoding="utf-8")
+        self.assertIn("alias dimasbotyara", zsh)
+        self.assertNotIn("HISTIGNORE", zsh)
+        self.assertNotIn("HISTCONTROL", zsh)
+
+    def test_wipe_removes_history_too(self):
+        launch.install_alias()
+        (self.home / ".bashrc").write_text(
+            self._bashrc() + "\nexport EDITOR=vim\n", encoding="utf-8")
+        launch.uninstall_alias()
+        content = self._bashrc()
+        self.assertNotIn("HISTIGNORE", content)
+        self.assertNotIn("HISTCONTROL", content)
+        self.assertNotIn(launch.HIST_MARKER, content)
+        self.assertNotIn("alias dimasbotyara", content)
+        self.assertIn("export EDITOR=vim", content)
+
+
+class VenvPath(unittest.TestCase):
+    def test_posix_venv_python(self):
+        self.assertEqual(launch.venv_python("/tmp/game"),
+                         Path("/tmp/game") / ".venv" / "bin" / "python")
 
 
 class Versioning(unittest.TestCase):
