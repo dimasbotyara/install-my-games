@@ -1,59 +1,65 @@
 #!/bin/bash
 
-# Скрипт для массового обновления репозиториев на флешке для офлайн-режима 😹
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # Без цвета
-
-REPOS_DIR="./repos"
-
-# Проверяем, что мы в правильной папке
-if [ ! -d "$REPOS_DIR" ]; then
-    echo -e "${RED}❌ Ошибка: Папка $REPOS_DIR не найдена!${NC}"
-    echo -e "Убедись, что скрипт запущен из корня папки systemd-backup на флешке 😹"
+# Синхронизация офлайн-копий из списка соседнего launch.py.
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
+if [ ! -f launch.py ]; then
+    printf '%s\n' 'Ошибка: положи update_repos_usb.sh рядом с launch.py на флешке.' >&2
     exit 1
 fi
 
-echo -e "${BLUE}🚀 Начинаем синхронизацию репозиториев для офлайн-флешки...${NC}"
-echo "==================================================="
+exec python3 -IB - <<'PY'
+import re
+import sys
+from pathlib import Path
 
-SUCCESS=0
-FAIL=0
+sys.path.insert(0, str(Path.cwd()))
+import launch
 
-for repo_path in "$REPOS_DIR"/*; do
-    if [ -d "$repo_path" ]; then
-        repo_name=$(basename "$repo_path")
-        echo -e "${YELLOW}🔄 Обновляем: $repo_name${NC}"
+repos = launch.FLASH_REPOS_DIR
+try:
+    if repos.is_symlink():
+        raise OSError("repos/ — символическая ссылка")
+    repos.mkdir(exist_ok=True)
+except OSError as exc:
+    launch.err("не удалось открыть папку репозиториев: %s" % exc)
+    sys.exit(1)
 
-        if [ -d "$repo_path/.git" ]; then
-            cd "$repo_path" || continue
+launch.show_banner()
+print(launch.paint("  СИНХРОНИЗАЦИЯ РЕПОЗИТОРИЕВ НА ФЛЕШКЕ", "yellow_b", "bold"))
 
-            # Делаем git pull. Если всё ок, счетчик успеха растет
-            if git pull > /dev/null 2>&1; then
-                echo -e "${GREEN}✅ Успешно: $repo_name${NC}"
-                ((SUCCESS++))
-            else
-                # Если тихий pull не сработал, пробуем с выводом, чтобы было видно ошибку
-                echo -e "${RED}⚠️ Пробуем обновить с выводом логов: $repo_name${NC}"
-                if git pull; then
-                    echo -e "${GREEN}✅ Успешно: $repo_name${NC}"
-                    ((SUCCESS++))
-                else
-                    echo -e "${RED}❌ Ошибка обновления: $repo_name${NC}"
-                    echo -e "${RED}   💡 Совет: зайди в папку и проверь git status вручную 😹${NC}"
-                    ((FAIL++))
-                fi
-            fi
-            cd - > /dev/null || exit
-        else
-            echo -e "${BLUE}⏭️ Пропущено (не git-репозиторий): $repo_name${NC}"
-        fi
-        echo "---------------------------------------------------"
-    fi
-done
+counts = {"добавлено": 0, "обновлено": 0, "без изменений": 0, "ошибок": 0}
+for name in dict.fromkeys(launch.REPO_LIST):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name in (".", ".."):
+        launch.err("недопустимое имя репозитория: %s" % name)
+        counts["ошибок"] += 1
+        continue
 
-echo "==================================================="
-echo -e "${GREEN}🎉 Готово! Успешно обновлено: $SUCCESS, с ошибками: $FAIL 😹${NC}"
+    dest = repos / name
+    url = "https://github.com/%s/%s.git" % (launch.GH_USER, name)
+    if dest.is_symlink() or (dest.exists() and not (dest / ".git").is_dir()):
+        launch.err("%s: путь занят, оставляю без изменений" % name)
+        counts["ошибок"] += 1
+        continue
+
+    if dest.exists():
+        print(launch.paint("  ▸ Обновляю %s" % name, "aqua_b"), flush=True)
+        good, msg, changed = launch.git_pull(dest)
+        result = "обновлено" if changed else "без изменений"
+    else:
+        print(launch.paint("  ▸ Скачиваю %s" % name, "aqua_b"), flush=True)
+        good, msg = launch.git_clone(url, dest)
+        result = "добавлено"
+
+    if good:
+        counts[result] += 1
+        launch.ok("%s: %s" % (name, result))
+    else:
+        counts["ошибок"] += 1
+        launch.err("%s: %s" % (name, msg))
+
+launch.hr()
+for label, count in counts.items():
+    color = "red_b" if label == "ошибок" and count else "fg"
+    print(launch.paint("  %s: %d" % (label, count), color))
+sys.exit(1 if counts["ошибок"] else 0)
+PY

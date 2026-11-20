@@ -635,33 +635,42 @@ class WebDetection(unittest.TestCase):
 
 
 class TerminalLaunch(unittest.TestCase):
-    """Веб-приложение: лаунчер ждёт и НЕ открепляет процесс."""
+    """Веб- и консольные приложения остаются в терминале."""
 
-    def _patches(self, fake_wait):
-        return [
-            unittest.mock.patch.object(launch, "Popen", create=True),
-            unittest.mock.patch.object(launch.subprocess, "Popen"),
-        ]
+    def test_new_projects_run_in_terminal(self):
+        cases = (
+            ("alchemy-matcher", "app.py", "from flask import Flask\n", "Flask"),
+            ("botyaracloud", "app.py", "from flask import Flask\n", "Flask"),
+            ("cli-anims", "main.py", "import curses\n", "в терминале"),
+        )
+        for name, entry, source, label in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                d = make_game(Path(td), name, {entry: source})
+                proc = unittest.mock.MagicMock()
+                proc.wait.return_value = 0
+                with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
+                     unittest.mock.patch.object(launch, "clear_screen_for_exit") as clear_out, \
+                     unittest.mock.patch.object(launch.time, "sleep"), \
+                     redirect_stdout(io.StringIO()) as buf:
+                    order = unittest.mock.Mock()
+                    order.attach_mock(proc.wait, "wait")
+                    order.attach_mock(clear_out, "clear")
+                    result = launch.launch_detached(
+                        name, {"path": str(d), "entry": entry, "python": sys.executable}, {})
+                self.assertTrue(result)
+                # Без новой сессии и перенаправления stdin/stdout/stderr.
+                popen.assert_called_once_with([sys.executable, str(d / entry)], cwd=str(d))
+                self.assertEqual(order.mock_calls, [unittest.mock.call.wait(), unittest.mock.call.clear()])
+                self.assertIn(label, buf.getvalue())
 
-    def test_web_game_runs_in_terminal(self):
-        with tempfile.TemporaryDirectory() as td:
-            d = make_game(Path(td), "casino", {"app.py": "from flask import Flask\n"})
-            proc = unittest.mock.MagicMock()
-            proc.wait.return_value = 0
-            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
-                 unittest.mock.patch.object(launch, "pause"), \
-                 unittest.mock.patch.object(launch, "clear_screen_for_exit") as clear_out, \
-                 unittest.mock.patch.object(launch.time, "sleep"), \
-                 redirect_stdout(io.StringIO()) as buf:
-                result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
-            # приложение отработало и закрылось -> лаунчер тоже закрывается,
-            # а экран после себя оставлять чистым
-            self.assertTrue(result, "выход из веб-приложения должен закрывать лаунчер")
-            clear_out.assert_called_once()
-            kwargs = popen.call_args.kwargs
-            self.assertNotIn("start_new_session", kwargs,
-                             "веб-приложение нельзя откреплять от терминала")
-            self.assertIn("Flask", buf.getvalue())
+    def test_exit_clear_falls_back_when_tput_fails(self):
+        with unittest.mock.patch.object(launch, "IS_TTY", True), \
+             unittest.mock.patch.object(launch.subprocess, "run", side_effect=
+                                        subprocess.CalledProcessError(1, ["tput", "clear"])) as run, \
+             redirect_stdout(io.StringIO()) as buf:
+            launch.clear_screen_for_exit()
+        self.assertTrue(run.call_args.kwargs["check"])
+        self.assertEqual(buf.getvalue(), "\033[H\033[2J\033[3J")
 
     def test_ctrl_c_closes_launcher(self):
         """Ctrl+C останавливает сервер и закрывает лаунчер."""
@@ -701,6 +710,24 @@ class TerminalLaunch(unittest.TestCase):
                 result = launch._run_in_terminal("casino", "py", d, "app.py", "Flask")
             self.assertTrue(result)
             proc.kill.assert_called_once()
+
+    def test_customtkinter_window_detaches_even_with_flask_imports(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = make_game(Path(td), "nnn-countdown", {
+                "main.py": "import customtkinter as ctk\n",
+                "web_helper.py": "from flask import Flask\n",
+            })
+            proc = unittest.mock.MagicMock()
+            proc.poll.return_value = None
+            with unittest.mock.patch.object(launch.subprocess, "Popen", return_value=proc) as popen, \
+                 unittest.mock.patch.object(launch, "clear"), \
+                 unittest.mock.patch.object(launch.time, "sleep"), \
+                 redirect_stdout(io.StringIO()):
+                result = launch.launch_detached(
+                    d.name, {"path": str(d), "entry": "main.py", "python": sys.executable}, {})
+            self.assertTrue(result)
+            popen.assert_called_once_with(
+                [sys.executable, str(d / "main.py")], cwd=str(d), start_new_session=True)
 
     def test_game_launch_detaches_pygame(self):
         """Обычная игра по-прежнему уходит в свою сессию."""
@@ -895,6 +922,10 @@ class Versioning(unittest.TestCase):
     def test_repo_list_has_new_games(self):
         self.assertIn("gearworks-industrial-age", launch.REPO_LIST)
         self.assertIn("botyaragames", launch.REPO_LIST)
+        self.assertIn("cli-anims", launch.REPO_LIST)
+        self.assertIn("alchemy-matcher", launch.REPO_LIST)
+        self.assertIn("nnn-countdown", launch.REPO_LIST)
+        self.assertIn("botyaracloud", launch.REPO_LIST)
 
     def test_alias_line_matches_spec(self):
         self.assertEqual(

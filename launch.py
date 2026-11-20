@@ -29,7 +29,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-__version__ = "2.3.3"
+__version__ = "2.3.4"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -53,6 +53,10 @@ REPO_LIST = [
     # новинки
     "gearworks-industrial-age",
     "botyaragames",
+    "cli-anims",
+    "alchemy-matcher",
+    "nnn-countdown",
+    "botyaracloud",
 ]
 if os.environ.get("BOTYARA_REPOS"):
     REPO_LIST = [r.strip() for r in os.environ["BOTYARA_REPOS"].split(",") if r.strip()]
@@ -206,12 +210,13 @@ def clear_screen_for_exit():
     if not IS_TTY:
         return
     try:
-        subprocess.run(["tput", "clear"], check=False, timeout=2,
+        sys.stdout.flush()
+        subprocess.run(["tput", "clear"], check=True, timeout=2,
                        stdout=sys.stdout, stderr=subprocess.DEVNULL)
         return
     except Exception:
         pass
-    print("\033[H\033[2J", end="", flush=True)
+    print("\033[H\033[2J\033[3J", end="", flush=True)
 
 
 def hr(char="─", color="fg_dim"):
@@ -839,7 +844,7 @@ def install_games(online, reg, interactive=True):
                     err("%s: не обновился (%s)" % (repo, msg))
                     stats["failed"].append(repo)
                     if msg == "нет сети или ошибка git":
-                        # сеть легла: не тратим по минуте на каждую из 12 игр
+                        # сеть легла: не тратим по минуте на каждый репозиторий
                         net_dead = True
                         warn("сеть недоступна — остальные обновления пропускаю")
             elif online:
@@ -1317,6 +1322,9 @@ def show_specs():
 
 # ============================== ЗАПУСК ИГР ==============================
 
+# Консольным проектам нужны ввод и вывод в текущем терминале, даже без веб-сервера.
+TERMINAL_REPOS = {"cli-anims"}
+
 # Фреймворки, чьё приложение живёт в терминале и не открепляется:
 # это веб-серверы, и закрыть их «в никуда» неудобно — открыл случайно
 # браузер, и всё, остановить нечем.
@@ -1333,8 +1341,8 @@ WEB_IMPORTS = {
 # Окно на экране: такую игру открепляем, даже если где-то рядом крутится
 # веб-сервер (botyarapong: pygame + werkzeug для мультиплеера).
 GUI_IMPORTS = {
-    "pygame", "pygame_ce", "tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6",
-    "kivy", "arcade", "pyglet", "wx",
+    "pygame", "pygame_ce", "tkinter", "customtkinter", "PyQt5", "PyQt6",
+    "PySide2", "PySide6", "kivy", "arcade", "pyglet", "wx",
 }
 
 
@@ -1420,13 +1428,16 @@ def _stop_process(proc):
 
 
 def _run_in_terminal(name, py, path, entry, framework):
-    """Веб-приложение — прямо в этом терминале, с его логом и Ctrl+C.
+    """Веб- или консольное приложение — в этом же терминале, с вводом и выводом.
 
     После завершения процесса закрывает лаунчер; ошибки запуска возвращают в меню.
     """
     clear()
-    print(paint("  🌐 %s — %s" % (name, framework), "yellow_b", "bold"))
-    print(paint("  лог и адрес — здесь же. выход из приложения закроет лаунчер", "fg_dim"))
+    if framework:
+        print(paint("  🌐 %s — %s" % (name, framework), "yellow_b", "bold"))
+        print(paint("  лог и адрес — здесь же. выход из приложения закроет лаунчер", "fg_dim"))
+    else:
+        print(paint("  %s — в терминале" % name, "yellow_b", "bold"))
     print(paint("  Ctrl+C — остановить приложение и закрыть лаунчер", "fg_dim"))
     print()
 
@@ -1461,9 +1472,9 @@ def launch_detached(name, game, reg):
     Обычная игра (pygame и прочее окно) — открепляем через setsid, чистим
     терминал и закрываем лаунчер: окно живёт само, лаунчер не мешает.
 
-    Веб-приложение (Flask, Django...) — наоборот, запускаем в этом же
-    терминале и ждём: закрыть такой сервер иначе неудобно, а Ctrl+C
-    останавливает его и закрывает лаунчер.
+    Веб-приложение (Flask, Django...) или известный консольный проект
+    запускаем в этом же терминале и ждём: Ctrl+C останавливает приложение
+    и закрывает лаунчер.
     """
     path = Path(game.get("path", ""))
     entry = game.get("entry")
@@ -1488,8 +1499,9 @@ def launch_detached(name, game, reg):
         py = sys.executable
         warn("venv нет — запускаю системным python")
 
-    framework = detect_web(path)
-    if framework:
+    terminal_repo = name in TERMINAL_REPOS
+    framework = None if terminal_repo else detect_web(path)
+    if terminal_repo or framework:
         return _run_in_terminal(name, py, path, entry, framework)
 
     info("запускаю %s (%s) откреплённо..." % (name, entry))
