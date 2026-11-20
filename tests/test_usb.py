@@ -42,7 +42,7 @@ class USBTests(unittest.TestCase):
              mock.patch.object(prepare_usb, 'removable_drives', return_value=[]):
             prompt = mock.Mock(side_effect=[td, 'да', 'нет', '', 'invalid', '3.11', 'aarch64', '2.28'])
             options = prepare_usb.collect_options(prompt)
-            self.assertEqual(options, (Path(td).resolve(), False, True, ('3.11',), 'aarch64', '2.28', False))
+            self.assertEqual(options, (Path(td).resolve(), False, True, ('3.11',), 'aarch64', '2.28', False, False))
             self.assertIn('Укажите версии как 3.11', prompt.call_args_list[5].args[2][0])
 
     def test_wizard_can_select_all_or_multiple_python_versions(self):
@@ -66,10 +66,54 @@ class USBTests(unittest.TestCase):
             self.assertIn('[y/N]', prompt.call_args.args[1])
             with self.assertRaises(FileExistsError):
                 prepare_usb.prepare(drive, False, False)
-            options = prepare_usb.collect_options(mock.Mock(side_effect=[td, 'да', 'нет', 'нет']))
+            options = prepare_usb.collect_options(mock.Mock(side_effect=[td, 'да', 'нет', 'нет', 'нет']))
             self.assertEqual(prepare_usb.prepare(*options), (root, []))
             self.assertTrue((root / 'keep.txt').is_file())
-            self.assertEqual(launch.read_version(launcher), '2.3.6')
+            self.assertEqual(launch.read_version(launcher), '2.3.7')
+
+    def test_clean_replacement_removes_old_folder_only_after_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            drive = Path(td)
+            root, _ = prepare_usb.prepare(drive, False, False)
+            (root / 'stale').mkdir()
+            (drive / 'personal.txt').touch()
+            with mock.patch.object(launch, 'REPO_LIST', ['game']), \
+                 mock.patch.object(launch, 'git_clone', return_value=(False, 'нет сети')):
+                self.assertEqual(prepare_usb.prepare(drive, True, False, overwrite=True, clean=True),
+                                 (root, ['game']))
+            self.assertTrue((root / 'stale').is_dir())
+            self.assertEqual(prepare_usb.prepare(drive, False, False, overwrite=True, clean=True),
+                             (root, []))
+            self.assertFalse((root / 'stale').exists())
+            self.assertTrue((root / 'launch.py').is_file())
+            self.assertEqual(set(drive.iterdir()), {root, drive / 'personal.txt'})
+
+    def test_missing_noise_wheel_warns_only_for_gearworks(self):
+        diagnostic = ('ERROR: Could not find a version that satisfies the requirement noise (from versions: none)\n'
+                      'ERROR: No matching distribution found for noise\n')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / 'project'
+            project.mkdir()
+            (project / 'requirements.txt').write_text('noise\n')
+            target = root / 'wheels' / launch.GEARWORKS / 'cp312'
+            target.mkdir(parents=True)
+            (target / 'old.whl').touch()
+            cases = [(launch.GEARWORKS, diagnostic, []),
+                     ('other', diagnostic, ['other (Python 3.12)']),
+                     (launch.GEARWORKS, 'WARNING: Retrying connection\n' + diagnostic,
+                      [launch.GEARWORKS + ' (Python 3.12)'])]
+            for name, message, expected in cases:
+                with self.subTest(name=name, message=message), \
+                     mock.patch.object(prepare_usb.subprocess, 'run', side_effect=
+                                       subprocess.CalledProcessError(1, ['private command'], stderr=message)), \
+                     redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(prepare_usb.download_wheel_bundles(
+                        root, project, name, ('3.12',), 'x86_64', '2.17'), expected)
+                    self.assertNotIn('private command', out.getvalue())
+                    if not expected:
+                        self.assertIn('понадобится интернет', out.getvalue())
+            self.assertTrue((target / 'old.whl').is_file())
 
     def test_wizard_uses_text_without_curses(self):
         with mock.patch.object(prepare_usb, 'curses', None), \
