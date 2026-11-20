@@ -29,7 +29,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-__version__ = "2.3.4"
+__version__ = "2.3.5"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -653,6 +653,35 @@ def offline_requirements_safe(requirements):
     return check(requirements)
 
 
+def wheel_bundle_tag(version):
+    """CPython 3.11 → cp311; общий формат для мастера и лаунчера."""
+    return "cp" + version.replace(".", "")
+
+
+def offline_wheel_bundle(name, py_bin):
+    """Выбирает набор для Python, которым будет запущен pip (в т. ч. старый venv)."""
+    root = FLASH_WHEELS_DIR / name
+    if not root.is_dir():
+        return None, "нет wheel-файлов для этой игры на флешке"
+    if any(path.is_dir() for path in root.glob("cp[0-9]*")):
+        try:
+            result = subprocess.run(
+                [str(py_bin), "-I", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+                capture_output=True, text=True, check=True, timeout=10)
+            version = result.stdout.strip()
+            if not re.fullmatch(r"[0-9]+\.[0-9]+", version):
+                raise ValueError("неожиданный вывод Python")
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return None, "не удалось определить версию Python в venv: %s" % exc
+        selected = root / wheel_bundle_tag(version)
+        if selected.is_dir():
+            return selected, ""
+        # Старый формат можно использовать, но не смешивать с новым набором.
+        if not any(root.glob("*.whl")):
+            return None, "на флешке нет набора wheel-файлов для Python %s" % version
+    return root, ""
+
+
 def offline_wheels_safe(directory):
     """Прямые ссылки в метаданных wheel обходят pip --no-index."""
     for wheel in Path(directory).glob("*.whl"):
@@ -791,21 +820,21 @@ def setup_project(project, reg, online, interactive=True):
 
     # --- установка зависимостей ---
     if deps:
-        wheels = FLASH_WHEELS_DIR / name
-        if not online and wheels.is_dir():
-            info("pip: установка из wheel-файлов флешки (без индекса)")
-            safe, reason = offline_requirements_safe(req) if req.is_file() else (True, "")
+        if online:
+            pip_ok, pip_err = pip_install(py_bin, deps)
+        else:
+            wheels, reason = offline_wheel_bundle(name, py_bin)
+            safe = wheels is not None
+            if safe and req.is_file():
+                safe, reason = offline_requirements_safe(req)
             if safe:
                 safe, reason = offline_wheels_safe(wheels)
             if safe:
+                info("pip: офлайн-набор %s" % wheels.relative_to(FLASH_WHEELS_DIR))
                 pip_ok, pip_err = pip_install(py_bin, ["--no-index", "--find-links", str(wheels),
                                                        "--only-binary=:all:", *deps])
             else:
                 pip_ok, pip_err = False, reason
-        elif not online:
-            pip_ok, pip_err = False, "нет сети и wheel-файлов для этой игры на флешке"
-        else:
-            pip_ok, pip_err = pip_install(py_bin, deps)
         if pip_ok:
             ok("pip: установлено/обновлено")
         else:

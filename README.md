@@ -1,6 +1,6 @@
 # 🎮 BOTYARA GAMES — install-my-games
 
-Games installer & launcher for **school Linux computer labs** (v2.3.4).
+Games installer & launcher for **school Linux computer labs** (v2.3.5).
 Runs from a **USB stick**: clones the games, builds venvs, installs dependencies,
 auto-detects entry points, keeps a game registry, shows PC specs and can even
 update itself from GitHub. Pure Python stdlib — **zero pip dependencies**.
@@ -173,30 +173,36 @@ types), or accepts a directory manually. Check the path before confirming: no
 disk is formatted. It creates `BOTYARA-GAMES/`, copies `launch.py`, then asks
 whether to download game repositories and Linux wheels separately. Wheels alone
 can be useful when games are already on the target PC; for a fresh offline PC,
-select **both**. Existing Git clones are updated; unrelated existing directories
-are not deleted. Failed downloads are reported and give a nonzero exit code.
-`BOTYARA_REPOS` also applies to the wizard.
+select **both**. If `BOTYARA-GAMES/` already exists, the wizard asks for
+confirmation before writing (default: no). Confirming updates only the launcher
+files and the selected content; unrelated files and unselected wheel sets are
+kept. Failed downloads are reported and give a nonzero exit code.
+`BOTYARA_REPOS` also applies to the wizard. The wizard uses a Gruvbox Dark
+`curses` interface when supported; otherwise (or with `NO_COLOR=1`) it uses
+text prompts. Download logs stay in the regular terminal.
 
-To refresh just the repositories later, run `bash update_repos_usb.sh` on a
-Linux computer with internet, Python 3 and Git. The wizard copies this helper
-when it is available; otherwise copy it next to `launch.py` on the stick. It
-uses that launcher's `REPO_LIST` (or `BOTYARA_REPOS`), updates existing clones,
-and downloads missing entries into `repos/`. It leaves unlisted folders and
-wheels untouched.
+To update the USB launcher and repositories later, run `bash update_repos_usb.sh`
+on Linux with internet, Python 3 and Git. The wizard copies this helper when it
+is available; otherwise copy the latest helper next to `launch.py` on the stick.
+It checks the launcher on GitHub `main` and replaces the USB copy only if the
+version is newer. It then uses the current `REPO_LIST` (or `BOTYARA_REPOS`) to
+update existing clones and download missing entries into `repos/`. If the
+launcher update fails, the old copy and list are kept and the exit code is nonzero.
+Unlisted folders, wheels and the launcher installed on the PC are left untouched.
 
-For wheels, specify the target **CPython version**, Linux CPU architecture
-(`x86_64` or `aarch64`) and minimum glibc baseline (`2.17` or `2.28`). On the
-target, check with `python3 --version`, `uname -m` and `ldd --version`. The
-wizard requests only binary wheels for Linux or platform-independent `any`,
-including dependencies, even when run on Windows. Packages without a compatible
-wheel cannot be prepared this way. One target combination is stored per game;
-preparing a different combination replaces that game's wheel set.
+For wheels, select one or more target **CPython versions** (e.g. `3.10, 3.12`),
+or type `all` / `все` to download sets for **3.10–3.14**. Enter alone selects the
+version running the wizard. A single CPU architecture (`x86_64` or `aarch64`)
+and glibc baseline (`2.17` or `2.28`) apply to all the selected versions. On the
+Linux target, check `python3 --version`, `uname -m` and `ldd --version`.
 
-**Cross-platform limitation:** pip may evaluate dependency environment markers
-using the *preparation* machine, not the target Linux machine. Windows-only or
-Linux-only conditional dependencies can therefore be missed or cause a failure.
-For best results prepare on a matching Linux system, and always test on the
-actual offline PC. Requirements with direct URLs or alternate package sources
+The wizard resolves dependencies for each selected Python version and requests
+binary Linux or universal wheels, even on Windows. It keeps the old set if a
+download fails. Preparing the same Python version for a different architecture
+or glibc baseline replaces that version's set. Package markers that depend on
+the exact Python patch version or kernel can still differ, because the wizard
+only knows the major/minor version and target platform. Test on the target PC.
+Requirements with direct URLs or alternate package sources
 are rejected for offline preparation; this feature is for index packages with
 available wheels, not arbitrary source builds. Native system libraries, a
 working Python/venv/pip and any non-Python assets must already be installed on
@@ -213,18 +219,20 @@ FLASH/BOTYARA-GAMES/
 │   ├── botyarapong/      # git clones
 │   └── botyaraTD/
 └── wheels/
-    ├── botyarapong/      # wheels for this game's requirements
-    └── botyaraTD/
+    └── botyarapong/
+        ├── cp310/       # CPython 3.10
+        └── cp312/       # CPython 3.12
 ```
 
 Without internet the installer copies games from `repos/` (keeping `.git`, so a
 later online `git pull` still works). Online always prefers GitHub — the stick
 copy is the fallback, not the source of truth. Run the **USB copy** of
 `launch.py` on the Linux PC (or `python3 /path/to/BOTYARA-GAMES/launch.py
---install`), so it can find the adjacent folders. When offline, pip installs
-from `wheels/<game>/` with `--no-index --only-binary=:all:`; it reports missing
-or incompatible wheels as installation failures instead of saying the game is
-ready. Direct links in requirements and wheel metadata are rejected offline.
+--install`), so it can find the adjacent folders. When offline, the launcher selects
+`wheels/<game>/cp3NN/` for the Python in the game's virtual environment and
+installs with `--no-index --only-binary=:all:`. Older flat `wheels/<game>/`
+bundles still work when there is no matching version-specific set. Missing or
+incompatible wheels are reported as installation failures. Direct links in requirements and wheel metadata are rejected offline.
 The installed launcher copy in `~/.config/systemd-backup/` does not automatically
 find a subsequently inserted stick; run the USB copy for installation or repair.
 An environment created without pip cannot install wheels until pip/venv is fixed.
