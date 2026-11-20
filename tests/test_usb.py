@@ -1,5 +1,7 @@
 import io
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -98,6 +100,63 @@ class USBTests(unittest.TestCase):
             self.assertTrue((result / 'repos' / 'game' / 'run.py').exists())
             self.assertEqual((existing / 'old.whl').read_text(), 'old')
             self.assertTrue((result / 'launch.py').is_file())
+            self.assertTrue((result / 'update_repos_usb.sh').is_file())
+
+    @unittest.skipUnless(shutil.which('bash') and shutil.which('git') and shutil.which('python3'),
+                         'requires Bash, Git and python3')
+    def test_usb_updater_syncs_only_listed_repos(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            upstream = root / 'upstream'
+            upstream.mkdir()
+            usb, failures = prepare_usb.prepare(root, False, False)
+            self.assertFalse(failures)
+            repos = usb / 'repos'
+            repos.mkdir()
+            github = 'https://github.com/%s/' % launch.GH_USER
+            env = dict(os.environ, BOTYARA_REPOS='existing,missing', GIT_CONFIG_NOSYSTEM='1',
+                       GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_COUNT='1',
+                       GIT_CONFIG_KEY_0='url.%s/.insteadOf' % upstream.as_uri(),
+                       GIT_CONFIG_VALUE_0=github, GIT_ALLOW_PROTOCOL='file')
+
+            def git(cwd, *args):
+                return subprocess.run(['git', *args], cwd=cwd, env=env, check=True,
+                                      capture_output=True, text=True, timeout=10)
+
+            def commit(repo, text):
+                (repo / 'data.txt').write_text(text)
+                git(repo, 'add', 'data.txt')
+                git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.org',
+                    '-c', 'commit.gpgsign=false', 'commit', '-qm', text)
+
+            for name in ('existing', 'missing', 'unlisted'):
+                remote = upstream / (name + '.git')
+                git(upstream, 'init', '-q', '-b', 'main', str(remote))
+                commit(remote, 'old')
+                if name != 'missing':
+                    git(repos, 'clone', '--depth', '1', github + name + '.git', name)
+                commit(remote, 'new')
+
+            def update(settings):
+                return subprocess.run(['bash', str(usb / 'update_repos_usb.sh')], cwd=root,
+                                      env=settings, capture_output=True, text=True, timeout=15)
+
+            result = update(env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((repos / 'existing' / 'data.txt').read_text(), 'new')
+            self.assertEqual((repos / 'missing' / 'data.txt').read_text(), 'new')
+            self.assertEqual((repos / 'unlisted' / 'data.txt').read_text(), 'old')
+            self.assertIn('добавлено: 1', result.stdout)
+            self.assertIn('обновлено: 1', result.stdout)
+            self.assertNotIn('\x1b[', result.stdout)
+
+            (repos / 'occupied').mkdir()
+            (repos / 'occupied' / 'keep.txt').touch()
+            result = update(dict(env, BOTYARA_REPOS='occupied,../outside,existing'))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('ошибок: 2', result.stdout)
+            self.assertIn('без изменений: 1', result.stdout)
+            self.assertTrue((repos / 'occupied' / 'keep.txt').exists())
 
     def test_offline_repo_copy_and_failure_summary(self):
         with tempfile.TemporaryDirectory() as td:

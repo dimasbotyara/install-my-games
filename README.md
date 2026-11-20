@@ -177,6 +177,13 @@ select **both**. Existing Git clones are updated; unrelated existing directories
 are not deleted. Failed downloads are reported and give a nonzero exit code.
 `BOTYARA_REPOS` also applies to the wizard.
 
+To refresh just the repositories later, run `bash update_repos_usb.sh` on a
+Linux computer with internet, Python 3 and Git. The wizard copies this helper
+when it is available; otherwise copy it next to `launch.py` on the stick. It
+uses that launcher's `REPO_LIST` (or `BOTYARA_REPOS`), updates existing clones,
+and downloads missing entries into `repos/`. It leaves unlisted folders and
+wheels untouched.
+
 For wheels, specify the target **CPython version**, Linux CPU architecture
 (`x86_64` or `aarch64`) and minimum glibc baseline (`2.17` or `2.28`). On the
 target, check with `python3 --version`, `uname -m` and `ldd --version`. The

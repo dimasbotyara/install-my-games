@@ -115,6 +115,9 @@ def prepare(drive, save_repos, save_wheels, python_version=None, arch=None, base
     root = drive / 'BOTYARA-GAMES'
     root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(launch.__file__), root / 'launch.py')
+    updater = Path(__file__).with_name('update_repos_usb.sh')
+    if updater.is_file():
+        shutil.copy2(updater, root / updater.name)
     failures = []
     if not (save_repos or save_wheels):
         return root, failures
