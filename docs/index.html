@@ -20,7 +20,7 @@
         <span class="brand-name">BOTYARA<span> / </span>GAMES</span>
       </a>
       <div class="topbar-right">
-        <span class="top-label"><span class="status-dot"></span> ДОКУМЕНТАЦИЯ <span class="top-version"> / v2.3.3</span></span>
+        <span class="top-label"><span class="status-dot"></span> ДОКУМЕНТАЦИЯ <span class="top-version"> / v2.3.4</span></span>
         <a class="github-link" href="https://github.com/dimasbotyara/install-my-games">GitHub <span aria-hidden="true">↗</span></a>
         <button class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Открыть навигацию"><span></span><span></span><span></span></button>
       </div>
@@ -133,7 +133,7 @@ curl -fL -o prepare_usb.py https://raw.githubusercontent.com/dimasbotyara/instal
 
         <section class="doc-section" id="launcher"><div class="section-header"><div><span class="section-label">05 / УПРАВЛЕНИЕ</span><h2>Знакомство с меню<span class="accent">.</span></h2></div><span class="section-index">05 — 09</span></div><p class="lead">Никаких сложных команд: большая часть действий доступна прямо в лаунчере.</p>
           <div class="menu-table"><div class="table-heading"><span>КЛАВИША</span><span>ЧТО ПРОИЗОЙДЁТ</span></div><div><kbd>1..N</kbd><span>Запустить игру по номеру или введи её имя</span></div><div><kbd>i</kbd><span>Установить или обновить игры</span></div><div><kbd>a</kbd><span>Синхронизировать реестр с папками игр</span></div><div><kbd>d</kbd><span>Удалить выбранную игру с подтверждением</span></div><div><kbd>r</kbd><span>Восстановление окружений и удаление следов</span></div><div><kbd>s</kbd><span>Посмотреть характеристики компьютера</span></div><div><kbd>u</kbd><span>Вручную проверить обновление лаунчера</span></div><div><kbd>q</kbd><span>Выйти из лаунчера</span></div></div>
-          <h3>Как запускаются игры?</h3><p>Оконные игры, например на pygame, отделяются от лаунчера: игра продолжает работать самостоятельно. Если игра сразу завершилась, вывод ошибки остаётся в терминале. Веб-приложения, например Flask, запускаются в том же терминале с логом. После их завершения или остановки через <code>Ctrl+C</code> лаунчер закрывается. Если найдены и GUI-, и веб-зависимости, приоритет у оконного режима.</p>
+          <h3>Как запускаются игры?</h3><p>Оконные приложения на pygame или CustomTkinter (например, <code>nnn-countdown</code>) отделяются от лаунчера: игра продолжает работать самостоятельно. Если игра сразу завершилась, вывод ошибки остаётся в терминале. Веб-приложения, например <code>alchemy-matcher</code> и <code>botyaracloud</code> на Flask, запускаются в том же терминале с логом. Меню анимаций <code>cli-anims</code> тоже остаётся в терминале: из него можно выйти клавишей <code>Q</code>. При завершении приложения или остановке через <code>Ctrl+C</code> лаунчер очищает терминал и закрывается. Если найдены и GUI-, и веб-зависимости, приоритет у оконного режима.</p>
           <h3>Полезные аргументы</h3><div class="codeblock"><div class="code-head"><span><i></i> КОМАНДНАЯ СТРОКА</span><button class="copy-btn" type="button">КОПИРОВАТЬ <span>⧉</span></button></div><pre><code>python3 launch.py --help
 python3 launch.py --version
 python3 launch.py --specs
@@ -156,7 +156,7 @@ python3 launch.py botyarapong</code></pre></div><p class="small-note"><code>--he
 
         <section class="end-card"><div><span class="section-label">// ГОТОВО К ПРИКЛЮЧЕНИЯМ?</span><h2>Хорошей игры<span>.</span></h2><p>Документация — только начало. Загляни в репозиторий, чтобы изучить код или поделиться идеями.</p><a class="button button-primary" href="https://github.com/dimasbotyara/install-my-games">Открыть GitHub <span>↗</span></a></div><div class="end-spark" aria-hidden="true">✳</div></section>
       </div>
-      <footer><div><a class="footer-brand" href="#top">BOTYARA <span>/</span> GAMES</a><p>Сделано с любовью к играм и терминалам.</p></div><div class="footer-links"><a href="#top">Наверх ↑</a><a href="https://github.com/dimasbotyara/install-my-games">GitHub ↗</a></div><div class="footer-bottom"><span>© BOTYARA GAMES</span><span>ДОКУМЕНТАЦИЯ / v2.3.3</span></div></footer>
+      <footer><div><a class="footer-brand" href="#top">BOTYARA <span>/</span> GAMES</a><p>Сделано с любовью к играм и терминалам.</p></div><div class="footer-links"><a href="#top">Наверх ↑</a><a href="https://github.com/dimasbotyara/install-my-games">GitHub ↗</a></div><div class="footer-bottom"><span>© BOTYARA GAMES</span><span>ДОКУМЕНТАЦИЯ / v2.3.4</span></div></footer>
     </main>
     <aside class="on-this-page" aria-label="Быстрые ссылки"><div class="toc-title">НА ЭТОЙ СТРАНИЦЕ</div><a href="#before">Перед установкой</a><a href="#install">Первый запуск</a><a href="#usb">Подготовка флешки</a><a href="#offline">Без интернета</a><a href="#launcher">Меню и команды</a><a href="#troubleshooting">Решение проблем</a><div class="toc-bottom"><span>✳</span><p>Всё, что нужно<br>для старта.</p></div></aside>
   </div>

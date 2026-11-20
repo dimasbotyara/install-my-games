@@ -1,6 +1,6 @@
 # 🎮 BOTYARA GAMES — install-my-games
 
-Games installer & launcher for **school Linux computer labs** (v2.3.3).
+Games installer & launcher for **school Linux computer labs** (v2.3.4).
 Runs from a **USB stick**: clones the games, builds venvs, installs dependencies,
 auto-detects entry points, keeps a game registry, shows PC specs and can even
 update itself from GitHub. Pure Python stdlib — **zero pip dependencies**.
@@ -91,14 +91,16 @@ stays visible.
 
 A **web app** (Flask, Django, FastAPI, Bottle, Tornado, Sanic, Quart) is handled
 the other way round: it runs **in the launcher's terminal**, you see its log and
-the address it listens on.
+the address it listens on. This includes `alchemy-matcher` and `botyaracloud` (Flask). The terminal
+animation picker `cli-anims` also stays attached so its menu can read the
+keyboard and draw in the terminal; press `Q` to exit the picker.
 
 - the app exits (you closed it / it crashed) → the launcher closes too and the
   screen is left clean, no server log hanging around in your terminal;
 - `Ctrl+C` → the server is stopped and the launcher closes too;
 
 The detection looks at the game's imports and names in `requirements.txt` (also
-local included requirements) and asks one question: *is there a window?* A game that imports `pygame`/`tkinter`/Qt is a normal windowed game and
+local included requirements) and asks one question: *is there a window?* A game that imports `pygame`/`tkinter`/`customtkinter`/Qt is a normal windowed game and
 gets detached even if it also talks to a web server in the background
 (`botyarapong`: pygame window + `werkzeug` multiplayer server — that one is
 detached). `werkzeug`/`aiohttp` alone are not treated as a web app either — they
@@ -275,10 +277,11 @@ CLI: `--install`, `--sync`, `--specs`, `--update`, `--version`, `--help`, or
 
 ## The game list
 
-Defaults live in `REPO_LIST` in `launch.py` — currently 12 repos from
+Defaults live in `REPO_LIST` in `launch.py` — currently 16 repos from
 [github.com/dimasbotyara](https://github.com/dimasbotyara), including
-`gearworks-industrial-age` and `botyaragames`. For a test run you can override it
-without editing the file:
+`gearworks-industrial-age`, `botyaragames`, `cli-anims`, `alchemy-matcher`,
+`nnn-countdown` (CustomTkinter), and `botyaracloud` (Flask).
+For a test run you can override it without editing the file:
 
 ```bash
 BOTYARA_REPOS="botyarapong,botyaragames" python3 launch.py
