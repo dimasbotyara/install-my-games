@@ -29,7 +29,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-__version__ = "2.3.5"
+__version__ = "2.3.6"
 
 # ============================== НАСТРОЙКИ ==============================
 
@@ -37,6 +37,7 @@ SCRIPT_REPO = "dimasbotyara/install-my-games"   # репозиторий сам�
 GH_USER = "dimasbotyara"
 
 # Игры можно переопределить для теста: BOTYARA_REPOS="repo1,repo2"
+GEARWORKS = "gearworks-industrial-age"
 REPO_LIST = [
     # топ-выбор
     "botyarapong",
@@ -51,15 +52,20 @@ REPO_LIST = [
     "botyaracasino",
     "botyaraexchange",
     # новинки
-    "gearworks-industrial-age",
     "botyaragames",
     "cli-anims",
     "alchemy-matcher",
     "nnn-countdown",
     "botyaracloud",
+    GEARWORKS,
 ]
 if os.environ.get("BOTYARA_REPOS"):
     REPO_LIST = [r.strip() for r in os.environ["BOTYARA_REPOS"].split(",") if r.strip()]
+
+
+def ordered_repos():
+    return sorted(REPO_LIST, key=lambda name: name == GEARWORKS)
+
 
 PROJECTS_DIR = Path.home() / ".config" / "systemd-backup"
 REGISTRY_FILE = PROJECTS_DIR / ".registry.json"
@@ -773,6 +779,60 @@ def git_pull(dest):
     return False, "нет сети или ошибка git", False
 
 
+def install_dependencies(project, py_bin, deps, online):
+    wheels, reason = offline_wheel_bundle(project.name, py_bin)
+    if wheels is not None:
+        req = project / "requirements.txt"
+        safe, reason = offline_requirements_safe(req) if req.is_file() else (True, "")
+        if safe:
+            safe, reason = offline_wheels_safe(wheels)
+        if safe:
+            info("pip: пробую локальные wheel-файлы (%s)" % wheels)
+            installed, reason = pip_install(py_bin, ["--no-index", "--find-links", str(wheels),
+                                                     "--only-binary=:all:", *deps])
+            if installed:
+                return True, ""
+            if online:
+                dim("локальный набор не подошёл: %s" % reason)
+    if online:
+        # pip проверяет теги Python/ABI/платформы; если колеса нет,
+        # разрешаем сборку из исходников (в частности, для noise).
+        return pip_install(py_bin, ["--prefer-binary", *deps])
+    return False, reason
+
+
+def gearworks_ready(project, py_bin):
+    req = project / "requirements.txt"
+    deps = ["-r", str(req)] if req.is_file() else detect_imports(project)
+    if not deps:
+        return True
+    safe, reason = offline_requirements_safe(req) if req.is_file() else (True, "")
+    if safe:
+        # Без индекса и wheel-каталога pip ищет решения среди уже установленных
+        # пакетов, учитывая версии, маркеры и транзитивные зависимости.
+        ready, reason = pip_install(py_bin, ["--dry-run", "--no-index", *deps])
+        if ready:
+            return True
+        ready, offline_reason = install_dependencies(project, py_bin, deps, False)
+        if ready:
+            return True
+    else:
+        offline_reason = reason
+    if not internet_ok(force=True):
+        err("Gearworks не запущен: зависимости не готовы, а интернета нет.")
+        dim("Проверка зависимостей: %s" % reason)
+        dim("Офлайн-установка: %s" % offline_reason)
+        dim("Подключись к интернету и снова выбери Gearworks в launch.")
+        return False
+    info("Gearworks: устанавливаю недостающие зависимости…")
+    ready, reason = pip_install(py_bin, ["--prefer-binary", *deps])
+    if not ready:
+        err("Gearworks не запущен: pip не смог установить зависимости.")
+        dim(reason or "pip завершился с ошибкой без подробностей")
+        dim("Если не собирается noise, проверь наличие компилятора C и заголовков для Python.")
+    return ready
+
+
 def setup_project(project, reg, online, interactive=True):
     """venv + зависимости + точка входа для одной игры. Возвращает True если ок."""
     name = project.name
@@ -820,23 +880,13 @@ def setup_project(project, reg, online, interactive=True):
 
     # --- установка зависимостей ---
     if deps:
-        if online:
-            pip_ok, pip_err = pip_install(py_bin, deps)
-        else:
-            wheels, reason = offline_wheel_bundle(name, py_bin)
-            safe = wheels is not None
-            if safe and req.is_file():
-                safe, reason = offline_requirements_safe(req)
-            if safe:
-                safe, reason = offline_wheels_safe(wheels)
-            if safe:
-                info("pip: офлайн-набор %s" % wheels.relative_to(FLASH_WHEELS_DIR))
-                pip_ok, pip_err = pip_install(py_bin, ["--no-index", "--find-links", str(wheels),
-                                                       "--only-binary=:all:", *deps])
-            else:
-                pip_ok, pip_err = False, reason
+        pip_ok, pip_err = install_dependencies(project, py_bin, deps, online)
         if pip_ok:
             ok("pip: установлено/обновлено")
+        elif name == GEARWORKS:
+            warn("Gearworks скачан. Всё нормально: зависимости проверим при запуске.")
+            dim("Если не хватает пакетов, при запуске может понадобиться интернет.")
+            dim(pip_err or "pip завершился с ошибкой")
         else:
             err("pip: %s" % (pip_err or "ошибка"))
             reg[name] = {"path": str(project), "entry": entry, "python": str(py_bin)}
@@ -857,7 +907,7 @@ def install_games(online, reg, interactive=True):
     if flash:
         info("на флешке найдены оффлайн-копии: %s" % ", ".join(sorted(flash)))
 
-    for repo in REPO_LIST:
+    for repo in ordered_repos():
         dest = PROJECTS_DIR / repo
         print()
         if dest.is_dir() and (dest / ".git").is_dir():
@@ -1524,6 +1574,20 @@ def launch_detached(name, game, reg):
         save_registry(reg)
 
     py = game.get("python") or ""
+    if name == GEARWORKS:
+        py, note = ensure_venv(path)
+        if py is None:
+            err("Gearworks не запущен: не удалось создать venv (%s)" % note)
+            pause()
+            return False
+        py = str(py)
+        if not gearworks_ready(path, py):
+            pause()
+            return False
+        if game.get("python") != py:
+            game["python"] = py
+            save_registry(reg)
+
     if not py or not Path(py).exists():
         py = sys.executable
         warn("venv нет — запускаю системным python")

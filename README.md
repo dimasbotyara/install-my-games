@@ -1,6 +1,15 @@
 # 🎮 BOTYARA GAMES — install-my-games
 
-Games installer & launcher for **school Linux computer labs** (v2.3.5).
+Games installer & launcher for **school Linux computer labs** (v2.3.6).
+
+In 2.3.6, the installer tries USB wheels for the game's Python first. With
+internet access, pip prefers compatible wheels but can build from source if
+needed (for example, `noise`). Gearworks is processed last. If its dependencies
+fail to install, the downloaded game is kept. When selected in `launch`, it
+checks its virtual environment, tries available USB wheels and, if needed,
+checks for internet access before retrying the installation. If it still can't
+start, the launcher explains why.
+
 Runs from a **USB stick**: clones the games, builds venvs, installs dependencies,
 auto-detects entry points, keeps a game registry, shows PC specs and can even
 update itself from GitHub. Pure Python stdlib — **zero pip dependencies**.
