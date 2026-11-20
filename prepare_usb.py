@@ -255,7 +255,7 @@ def prepare(drive, save_repos, save_wheels, python_versions=(), arch=None, basel
             path.mkdir(exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix='botyara-usb-') as temp:
-        for name in dict.fromkeys(launch.REPO_LIST):
+        for name in dict.fromkeys(launch.ordered_repos()):
             # Значения BOTYARA_REPOS не должны выходить за пределы флешки.
             if not re.fullmatch(r'[A-Za-z0-9_.-]+', name) or name in ('.', '..'):
                 launch.err('Недопустимое имя репозитория: ' + name)

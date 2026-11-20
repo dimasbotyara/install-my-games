@@ -69,7 +69,7 @@ class USBTests(unittest.TestCase):
             options = prepare_usb.collect_options(mock.Mock(side_effect=[td, 'да', 'нет', 'нет']))
             self.assertEqual(prepare_usb.prepare(*options), (root, []))
             self.assertTrue((root / 'keep.txt').is_file())
-            self.assertEqual(launch.read_version(launcher), '2.3.5')
+            self.assertEqual(launch.read_version(launcher), '2.3.6')
 
     def test_wizard_uses_text_without_curses(self):
         with mock.patch.object(prepare_usb, 'curses', None), \
