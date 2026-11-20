@@ -1,8 +1,8 @@
 # 🎮 BOTYARA GAMES — install-my-games
 
-Games installer & launcher for **school Linux computer labs** (v2.3.6).
+Games installer & launcher for **school Linux computer labs** (v2.3.7).
 
-In 2.3.6, the installer tries USB wheels for the game's Python first. With
+In 2.3.7, the installer tries USB wheels for the game's Python first. With
 internet access, pip prefers compatible wheels but can build from source if
 needed (for example, `noise`). Gearworks is processed last. If its dependencies
 fail to install, the downloaded game is kept. When selected in `launch`, it
@@ -183,12 +183,17 @@ disk is formatted. It creates `BOTYARA-GAMES/`, copies `launch.py`, then asks
 whether to download game repositories and Linux wheels separately. Wheels alone
 can be useful when games are already on the target PC; for a fresh offline PC,
 select **both**. If `BOTYARA-GAMES/` already exists, the wizard asks for
-confirmation before writing (default: no). Confirming updates only the launcher
-files and the selected content; unrelated files and unselected wheel sets are
-kept. Failed downloads are reported and give a nonzero exit code.
+confirmation before writing (default: no). By default it updates only selected
+content and keeps everything else. Choose **Полностью заменить папку BOTYARA-GAMES?**
+to build a fresh folder on the same drive and remove the old folder, including
+personal files inside it, only after successful preparation. This requires space
+for both copies. Files outside `BOTYARA-GAMES/` are not touched.
+Failed downloads return a nonzero exit code. The exception is a missing `noise`
+wheel for Gearworks: the wizard warns that internet may be needed at launch and
+leaves any previous wheel set intact in update mode.
 `BOTYARA_REPOS` also applies to the wizard. The wizard uses a Gruvbox Dark
 `curses` interface when supported; otherwise (or with `NO_COLOR=1`) it uses
-text prompts. Download logs stay in the regular terminal.
+text prompts. Download errors are summarized in the regular terminal.
 
 To update the USB launcher and repositories later, run `bash update_repos_usb.sh`
 on Linux with internet, Python 3 and Git. The wizard copies this helper when it

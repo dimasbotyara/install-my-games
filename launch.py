@@ -29,7 +29,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-__version__ = "2.3.6"
+__version__ = "2.3.7"
 
 # ============================== НАСТРОЙКИ ==============================
 

@@ -226,13 +226,37 @@ def replace_wheel_bundle(staging, target):
             shutil.rmtree(temp)
 
 
-def prepare(drive, save_repos, save_wheels, python_versions=(), arch=None, baseline=None, overwrite=False):
+def prepare(drive, save_repos, save_wheels, python_versions=(), arch=None, baseline=None, overwrite=False, clean=False):
     """Сохраняет launcher и по выбору исходники/колёса; не затирает чужие каталоги."""
     root = drive / 'BOTYARA-GAMES'
     if root.is_symlink() or (root.exists() and not root.is_dir()):
         raise OSError('Путь %s занят и не является обычной папкой.' % root)
     if save_wheels and not python_versions:
         raise ValueError('Не выбрана версия Python для wheel-файлов.')
+    if clean:
+        if not overwrite:
+            raise ValueError('Полная замена требует подтверждения перезаписи.')
+        temp = Path(tempfile.mkdtemp(prefix='.botyara-', dir=drive))
+        backup = temp / 'previous'
+        try:
+            staged, failures = prepare(temp, save_repos, save_wheels, python_versions, arch, baseline)
+            if failures:
+                launch.warn('Полная замена отменена: старая папка сохранена.')
+                return root, failures
+            if root.exists():
+                root.rename(backup)
+            try:
+                staged.rename(root)
+            except OSError:
+                if backup.exists():
+                    backup.rename(root)
+                raise
+            if backup.exists():
+                shutil.rmtree(backup)
+            return root, []
+        finally:
+            if not backup.exists():
+                shutil.rmtree(temp)
     root.mkdir(parents=True, exist_ok=overwrite)
     files = [Path(launch.__file__)]
     updater = Path(__file__).with_name('update_repos_usb.sh')
@@ -313,11 +337,30 @@ def download_wheel_bundles(root, project, name, versions, arch, baseline):
                 staging = Path(temp)
                 if needs_download:
                     cmd = linux_wheel_command(project, staging, version, arch, baseline)
-                    subprocess.run(cmd, cwd=str(project), timeout=600, check=True)
+                    subprocess.run(cmd, cwd=str(project), timeout=600, check=True,
+                                   capture_output=True, text=True, errors="replace")
                 if not linux_wheels_only(staging):
                     raise ValueError('скачаны не Linux wheel-файлы')
                 replace_wheel_bundle(staging, target)
                 launch.ok('Python %s: wheel-файлов: %d' % (version, len(list(staging.iterdir()))))
+        except subprocess.CalledProcessError as exc:
+            output = (exc.stderr or '').strip()
+            missing = re.findall(r'^ERROR: No matching distribution found for (.+)$', output, re.M)
+            if (name == launch.GEARWORKS and missing == ['noise']
+                    and 'requirement noise (from versions: none)' in output
+                    and 'retrying' not in output.lower() and 'could not fetch' not in output.lower()):
+                launch.warn('%s: для noise нет совместимого wheel. Подготовка продолжается.' % label)
+                if target.is_dir():
+                    launch.dim('Прежний набор сохранён.')
+                launch.dim('Если зависимости не установлены, при запуске через launch понадобится интернет;')
+                launch.dim('для сборки noise могут понадобиться компилятор C и заголовки Python.')
+                continue
+            detail = ' / '.join(output.splitlines()[-4:]) or 'pip завершился с кодом %s' % exc.returncode
+            launch.err('%s: не удалось обновить набор: %s' % (label, detail))
+            failures.append(label)
+        except subprocess.TimeoutExpired:
+            launch.err('%s: скачивание wheel-файлов заняло больше 10 минут.' % label)
+            failures.append(label)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             launch.err('%s: не удалось обновить набор: %s' % (label, exc))
             failures.append(label)
@@ -351,8 +394,8 @@ def collect_options(prompt):
     root = drive / 'BOTYARA-GAMES'
     overwrite = root.exists() or root.is_symlink()
     if overwrite:
-        if not yes_no(prompt, 'BOTYARA-GAMES уже есть. Перезаписать выбранные файлы?', step,
-                      (*details, 'Остальные файлы и наборы Python сохранятся.'), default=False):
+        if not yes_no(prompt, 'BOTYARA-GAMES уже есть. Продолжить подготовку?', step,
+                      (*details, 'Можно обновить выбранное или полностью заменить папку.'), default=False):
             return None
     elif not yes_no(prompt, 'Продолжить?', step, details):
         return None
@@ -371,7 +414,12 @@ def collect_options(prompt):
             baseline = prompt(step, 'Минимальная glibc Linux-ПК: 2.17 / 2.28 [2.17]').strip() or '2.17'
             if baseline in ('2.17', '2.28'):
                 break
-    return drive, repos, wheels, versions, arch, baseline, overwrite
+    clean = overwrite and yes_no(
+        prompt, 'Полностью заменить папку BOTYARA-GAMES?', '04 / РЕЖИМ ЗАПИСИ',
+        ('Да: после успешной подготовки старая папка целиком удалится, включая личные файлы.',
+         'Нет: обновятся только выбранные файлы; остальные останутся.',
+         'Для полной замены нужно место на флешке для старой и новой папок.'), default=False)
+    return drive, repos, wheels, versions, arch, baseline, overwrite, clean
 
 
 def configure():
